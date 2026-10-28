@@ -1,35 +1,72 @@
-# 꼭꼭 백엔드
+# 꼭꼭 Spring Boot 백엔드
 
-꼭꼭 앱의 백엔드 API 레포입니다. 현재는 협업 문서만 추가된 단계이며 구현 언어와 프레임워크는 아직 정하지 않았습니다.
+Java 17 / Spring Boot 4.1.2 / Gradle Wrapper 기반 통합 검사 API 서버입니다.
 
-## 협업 방식
+앱 → Spring Boot(입력 검증·검사 작업 저장·접근 키·오류 처리) → Node 분석 서버(비동기 분석·상태·결과 보관) 흐름입니다. Node 주소가 아직 없으므로 실제 분석은 연결 후 가능합니다. 기존 PoC Node 서버에는 새 통합 계약을 추가해야 합니다.
 
-두 레포는 각각 GitHub Flow를 사용합니다.
+## 실행 (PowerShell)
 
-1. 최신 `main`에서 작업 브랜치를 만듭니다.
-2. 하나의 작업 목적에 맞춰 구현하고 검증합니다.
-3. PR에 목적·변경 내용·검증 결과를 작성하고 다른 팀원에게 리뷰를 요청합니다.
-4. 필요한 검증을 마치면 작성자가 `main`에 병합할 수 있습니다. 승인을 기다릴 의무는 없습니다.
-5. 병합 후 리뷰도 확인하고 필요한 수정은 후속 PR로 반영합니다.
+```powershell
+$env:GRADLE_USER_HOME = Join-Path (Get-Location) '.gradle-user'
+$env:APP_API_KEY = '개발용-비밀키로-교체'
+$env:NODE_ANALYSIS_BASE_URL = 'http://127.0.0.1:3000'
+$env:NODE_ANALYSIS_API_KEY = 'Node와-합의한-비밀키'
+.\gradlew.bat bootRun
+```
 
-`develop` 브랜치는 사용하지 않습니다. 자동 검사와 승인 강제 설정은 이번 문서 세팅에 포함하지 않습니다.
+기본 포트는 8080, 바인딩은 127.0.0.1입니다. `.env.example`은 참고용이며 `.env`를 자동 로드하지 않습니다. AWS Node 주소는 NODE_ANALYSIS_BASE_URL에 설정합니다. 키는 저장소에 넣지 않습니다.
 
-### 브랜치와 커밋
+- `POST /api/inspections`: 사진 및 장소 입력, 202 작업 ID 반환
+- `GET /api/inspections/{id}`: 진행 상태·bbox·위험 요소·반복 노출 결과 조회
+- `GET /actuator/health`: Spring 서버 상태 (Node 가용성을 뜻하지 않음)
 
-- 브랜치: `<type>/<영문 작업명>` — 예: `feat/photo-picker`, `fix/upload-error`, `docs/api-guide`
-- 커밋: `<type>: <한글 중심 설명>` — 예: `feat: 사진 선택 화면 추가`
-- type: `feat`, `fix`, `refactor`, `docs`, `style`, `test`, `chore`
-- 하나의 PR은 가능한 한 하나의 작업 목적을 담습니다.
+[요청·응답·오류·Node 구현 요구사항](docs/inspection-api.md)을 참고하세요.
 
-### PR 전 확인
+## 빌드 및 검증
 
-- 코드 변경: 빌드와 해당 기능의 기본 동작을 확인하고, 관련 테스트가 있으면 실행합니다.
-- 문서 변경: 내용과 링크를 확인합니다.
-- 검증하지 못한 항목은 사유를 PR에 기록합니다.
-- 실제 API와 모의 데이터·모의 응답 검증을 구분해서 기록합니다.
+```powershell
+$env:GRADLE_USER_HOME = Join-Path (Get-Location) '.gradle-user'
+.\gradlew.bat build --no-daemon
+java -jar build/libs/backend-0.0.1-SNAPSHOT.jar
+```
 
-Codex 작업 원칙은 [AGENTS.md](./AGENTS.md)를 따릅니다.
+테스트는 모의 HTTP Node 서버를 사용합니다. 실제 OpenAI나 AWS 분석을 호출하지 않습니다. 서버 주소 미설정은 503, Node 연결 실패는 504로 응답합니다.
 
-## 실행 및 개발 환경
+현재 공유 앱 키는 단일 사용자 파일럿 접근 제어입니다. 사용자 계정·사진 저장·장소 관리·군집화·점수 계산·편집은 포함되지 않습니다. 검사 요청 메타데이터는 Spring의 JPA 저장소에서 관리합니다. 다중 사용자 앱에는 로그인 및 사용자별 접근권한을 먼저 추가해야 합니다. 브라우저의 교차 출처 CORS는 아직 열지 않았으며 실제 프론트 주소 확정 후 허용 목록을 설정합니다.
 
-프로젝트 세팅 후 설치·실행·빌드·테스트 명령과 필요한 환경변수를 기록합니다. 비밀값 자체는 기록하지 않습니다.
+## 협업
+
+기존 feat/defaut-frame 브랜치를 사용합니다. Conventional Commits 및 GitHub Flow를 따르며 작업 원칙은 [AGENTS.md](AGENTS.md)를 참고하세요.
+
+## 계층 구조
+
+```text
+com.kkokkkok.backend
+├── apiPayload       공통 오류 응답 / exception 예외 처리
+├── config           Node HTTP 클라이언트 설정, 개발용 접근 키 필터
+├── client           AnalysisClient 인터페이스, Node HTTP 구현
+├── converter        Node 응답 → API 응답 DTO 변환
+├── domain           Inspection JPA 엔티티, 검증된 분석 입력
+├── repository       InspectionRepository (Spring Data JPA)
+├── service          InspectionService 업무 흐름, InspectionStore DB 트랜잭션
+├── validation       사진·장소 입력 검증과 요청 해시 계산
+├── web
+│   ├── controller   HTTP 입력/출력
+│   └── dto          요청·응답 타입
+└── BackendApplication
+```
+
+Controller → Service → Validator / Client / Converter / Store → Repository 흐름입니다.
+Service는 외부 HTTP 호출 중 DB 트랜잭션을 유지하지 않습니다. Node 통신 구현을 바꾸더라도 Controller의 API는 유지할 수 있습니다. 기존 JSON을 감싸는 새 성공 envelope는 추가하지 않았습니다.
+
+## 로컬 DB
+
+기본 DB는 파일 H2(`private-data/backend`)입니다. 최초 실행 시 생성되고 재시작 후에도 검사 요청 메타데이터가 남습니다. 테스트는 메모리 H2를 사용합니다.
+
+`inspections` 테이블: request_id(PK, Idempotency-Key), fingerprint(SHA-256), inspection_id(Node ID, UNIQUE), status, created_at, updated_at, version(낙관적 잠금).
+
+원본 사진·주소·전체 분석 결과는 이 테이블에 저장하지 않습니다. 요청 해시에만 입력 내용이 반영됩니다. Node가 실제 결과를 보관하며, 조회 시 Spring은 상태를 갱신합니다. 이전 버전에서 생성한 Node 작업도 GET으로 조회할 수 있지만 Spring에 요청 기록이 없는 작업은 새 DB 기록을 자동 생성하지 않습니다.
+
+동일 요청 키+다른 입력은 409입니다. 동일 키+같은 입력은 Node에 동일 키를 다시 보내므로 Node의 중복 실행 방지도 필요합니다. 통신 실패 시 `submitting` 상태가 남아 같은 키로 재시도할 수 있습니다. 이 상태는 Node 분석 실패 판정이 아닙니다.
+
+`DB_URL`, `DB_USERNAME`, `DB_PASSWORD`로 DB 연결을 설정할 수 있습니다. 현재 JDBC 드라이버는 H2만 포함합니다. 운영 DB 선정 후 해당 드라이버와 Flyway 같은 버전별 마이그레이션을 추가하고, 개발용 `ddl-auto=update`를 `validate`로 전환해야 합니다.

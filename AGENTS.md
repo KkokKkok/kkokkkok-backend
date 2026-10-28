@@ -34,3 +34,13 @@
 - API 명세에 요청·응답·오류 형식을 기록한다. 클라이언트와 합의 없이 호환성을 깨지 않는다.
 - 시간이 걸리는 분석은 진행 상태, 실패와 중복 요청 처리 방식을 정의한다.
 - 구현 언어·프레임워크·폴더 구조는 아직 정하지 않았다. 프로젝트 세팅 전에 팀과 합의한다.
+
+## 서버 기본 구성 (2026-10-28 사용자 요청)
+- Java 17 / Spring Boot / Gradle Wrapper. 앱은 통합 검사 시작·조회 API를 호출하고 Node 서버가 분석한다.
+- 검증: gradlew.bat build --no-daemon. 실행: gradlew.bat bootRun. Gradle 캐시는 로컬 .gradle-user를 사용할 수 있다.
+- 실제 Node 연동과 모의 HTTP 서버 테스트를 구분한다. API 계약은 docs/inspection-api.md에 유지한다.
+
+## 계층 구조 확장 (2026-10-28 사용자 요청)
+- web/controller → service → client 또는 repository로 책임을 분리한다. DTO는 web/dto, JPA 엔티티는 domain, 변환은 converter, 입력 검증은 validation, 오류는 apiPayload에 둔다.
+- 검사 작업 메타데이터는 Spring Data JPA/H2에 저장한다. 외부 Node 호출 중 DB 트랜잭션을 열어 두지 않는다.
+- 현재 API 경로와 JSON 형식을 유지한다. 향후 로그인·장소·점수 관련 도메인은 사용자 요청에 따라 추가한다.
