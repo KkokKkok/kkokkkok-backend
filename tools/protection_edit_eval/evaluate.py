@@ -145,6 +145,27 @@ def create_preview(source_path: Path, mask_path: Path, destination: Path) -> Non
     Image.alpha_composite(preview, overlay).save(destination, format="PNG", optimize=True)
 
 
+def crop_box_for_mask(mask: Image.Image, context_scale: float) -> tuple[int, int, int, int]:
+    """Return a context crop around editable pixels while retaining the source aspect ratio."""
+    if context_scale < 1.5 or context_scale > 8:
+        raise ValueError("mask 주변 crop 배율은 1.5~8 범위여야 합니다.")
+    editable = ImageOps.invert(mask.convert("RGBA").getchannel("A"))
+    bounds = editable.getbbox()
+    if bounds is None:
+        raise ValueError("mask에 편집할 투명 영역이 없습니다.")
+    left, top, right, bottom = bounds
+    target_width, target_height = right - left, bottom - top
+    source_width, source_height = mask.size
+    source_ratio = source_width / source_height
+    crop_width = max(target_width * context_scale, target_height * context_scale * source_ratio)
+    crop_width = min(source_width, math.ceil(crop_width))
+    crop_height = min(source_height, math.ceil(crop_width / source_ratio))
+    center_x, center_y = (left + right) / 2, (top + bottom) / 2
+    crop_left = max(0, min(source_width - crop_width, round(center_x - crop_width / 2)))
+    crop_top = max(0, min(source_height - crop_height, round(center_y - crop_height / 2)))
+    return crop_left, crop_top, crop_left + crop_width, crop_top + crop_height
+
+
 def make_prompt(target: str, preserve: str) -> str:
     return (
         "Edit this photograph to reduce location-identifying information. "
@@ -245,6 +266,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--preserve", required=True, help="그대로 유지해야 할 주요 대상·분위기")
     parser.add_argument("--model", default="gpt-image-2.5-sunburst", help="기본 비교 모델 (편집 정밀도 기준)")
     parser.add_argument("--quality", choices=("low", "medium", "high", "xhigh", "max"), default="high")
+    parser.add_argument("--crop-context-scale", type=float,
+                        help="mask 주변을 잘라 편집기에 보내고 mask 영역만 원본에 합성 (1.5~8배)")
     parser.add_argument("--output-dir", type=Path,
                         default=Path.home() / "Downloads" / "kkokkkok-edit-eval")
     parser.add_argument("--dry-run", action="store_true", help="API 호출 없이 사진 정리·mask·미리보기만 생성")
@@ -259,6 +282,8 @@ def run(args: argparse.Namespace) -> Path:
     supplied_mask = args.mask_file.expanduser().resolve() if args.mask_file else None
     if (args.region is None) == (supplied_mask is None):
         raise ValueError("--region 또는 --mask-file 중 하나만 지정해 주세요.")
+    if args.crop_context_scale is not None and not 1.5 <= args.crop_context_scale <= 8:
+        raise ValueError("mask 주변 crop 배율은 1.5~8 범위여야 합니다.")
     validate_paths(image_path, output_root)
     if supplied_mask and (not supplied_mask.is_file() or is_within(supplied_mask, REPOSITORY_ROOT)):
         raise ValueError("mask PNG는 저장소 바깥의 파일을 지정해 주세요.")
@@ -285,6 +310,7 @@ def run(args: argparse.Namespace) -> Path:
         region_px = create_mask(width, height, args.region, mask_path)
     create_preview(source_path, mask_path, preview_path)
     prompt = make_prompt(args.target, args.preserve)
+    edit_image_path, edit_mask_path = source_path, mask_path
     manifest = {
         "createdAt": datetime.now(timezone.utc).isoformat(),
         "model": args.model,
@@ -292,6 +318,7 @@ def run(args: argparse.Namespace) -> Path:
         "inputSha256": image_digest,
         "orientedImageSize": {"width": width, "height": height},
         "maskSource": "file" if supplied_mask else "manual-rectangle",
+        "editMode": "full-image",
         "target": args.target,
         "preserve": args.preserve,
         "prompt": prompt,
@@ -302,18 +329,43 @@ def run(args: argparse.Namespace) -> Path:
         manifest["regionPixels"] = {
             "left": region_px[0], "top": region_px[1], "right": region_px[2], "bottom": region_px[3]
         }
+    crop_box = None
+    if args.crop_context_scale is not None:
+        with Image.open(source_path) as source_image, Image.open(mask_path) as full_mask:
+            crop_box = crop_box_for_mask(full_mask, args.crop_context_scale)
+            edit_image_path = run_dir / "edit-source.png"
+            edit_mask_path = run_dir / "edit-mask.png"
+            source_image.crop(crop_box).save(edit_image_path, format="PNG", optimize=True)
+            full_mask.crop(crop_box).save(edit_mask_path, format="PNG", optimize=True)
+        manifest["editMode"] = "crop-and-mask-composite"
+        manifest["cropContextScale"] = args.crop_context_scale
+        manifest["cropBox"] = {"left": crop_box[0], "top": crop_box[1], "right": crop_box[2], "bottom": crop_box[3]}
     manifest_path = run_dir / "run.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (run_dir / "review.md").write_text(REVIEW_TEMPLATE, encoding="utf-8")
 
     if not args.dry_run:
-        image_bytes = request_edit(source_path, mask_path, prompt, args.model, args.quality)
+        image_bytes = request_edit(edit_image_path, edit_mask_path, prompt, args.model, args.quality)
         try:
             with Image.open(io.BytesIO(image_bytes)) as output:
                 output.verify()
+            with Image.open(io.BytesIO(image_bytes)) as output:
+                edited_image = output.convert("RGB")
         except (OSError, Image.DecompressionBombError):
             raise RuntimeError("API 응답이 유효한 이미지가 아닙니다.") from None
-        (run_dir / "edited.png").write_bytes(image_bytes)
+        if crop_box is None:
+            (run_dir / "edited.png").write_bytes(image_bytes)
+        else:
+            edited_image.save(run_dir / "edited-crop.png", format="PNG", optimize=True)
+            from preserve_outside import composite_preserved
+
+            with Image.open(source_path) as source_image, Image.open(edit_mask_path) as crop_mask:
+                source_image = source_image.convert("RGB")
+                source_crop = source_image.crop(crop_box)
+                final_crop = composite_preserved(source_crop, edited_image, crop_mask.convert("RGBA"), feather_px=12)
+                source_image.paste(final_crop, (crop_box[0], crop_box[1]))
+                source_image.save(run_dir / "edited.png", format="PNG", optimize=True,
+                                  icc_profile=source_image.info.get("icc_profile"))
         manifest["status"] = "completed"
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return run_dir
