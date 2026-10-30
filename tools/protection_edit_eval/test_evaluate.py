@@ -5,10 +5,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 import evaluate
 from evaluate import Region, create_mask, prepare_image, run, validate_paths
+from mask_from_text import create_polygon_mask, polygon_points
 
 
 class RegionTests(unittest.TestCase):
@@ -18,6 +19,25 @@ class RegionTests(unittest.TestCase):
     def test_rejects_region_outside_image(self):
         with self.assertRaises(argparse.ArgumentTypeError):
             Region.parse("0.9,0.2,0.2,0.4")
+
+
+class TextMaskTests(unittest.TestCase):
+    def test_validates_normalized_polygon(self):
+        self.assertEqual(
+            polygon_points([{"x": 0.1, "y": 0.2}, {"x": 0.8, "y": 0.2}, {"x": 0.5, "y": 0.9}]),
+            [(0.1, 0.2), (0.8, 0.2), (0.5, 0.9)],
+        )
+        with self.assertRaises(ValueError):
+            polygon_points([{"x": 1.1, "y": 0.2}, {"x": 0.8, "y": 0.2}, {"x": 0.5, "y": 0.9}])
+
+    def test_polygon_mask_only_opens_alpha_inside_shape(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "mask.png"
+            points = [(0.2, 0.2), (0.8, 0.2), (0.5, 0.8)]
+            create_polygon_mask(100, 100, points, path, margin_px=0)
+            with Image.open(path) as mask:
+                self.assertEqual(mask.getpixel((50, 40))[3], 0)
+                self.assertEqual(mask.getpixel((5, 5))[3], 255)
 
 
 class ImagePreparationTests(unittest.TestCase):
@@ -83,6 +103,7 @@ class SafetyAndRunTests(unittest.TestCase):
                 "image": photo,
                 "output_dir": root / "results",
                 "region": Region(.25, .25, .5, .5),
+                "mask_file": None,
                 "target": "synthetic sign",
                 "preserve": "synthetic cup",
                 "model": "gpt-image-2.5-sunburst",
@@ -97,6 +118,36 @@ class SafetyAndRunTests(unittest.TestCase):
             self.assertEqual(manifest["status"], "dry-run")
             self.assertNotIn(str(photo), (result / "run.json").read_text(encoding="utf-8"))
 
+    def test_dry_run_accepts_external_alpha_mask_without_region(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            photo = root / "synthetic.png"
+            mask = root / "mask.png"
+            Image.new("RGB", (32, 24), (120, 140, 160)).save(photo)
+            alpha = Image.new("L", (32, 24), 255)
+            ImageDraw.Draw(alpha).rectangle((8, 6, 20, 18), fill=0)
+            mask_image = Image.new("RGBA", (32, 24), (0, 0, 0, 255))
+            mask_image.putalpha(alpha)
+            mask_image.save(mask)
+            args = type("Args", (), {
+                "image": photo,
+                "output_dir": root / "results",
+                "region": None,
+                "mask_file": mask,
+                "target": "synthetic sign",
+                "preserve": "synthetic cup",
+                "model": "gpt-image-2.5-sunburst",
+                "quality": "high",
+                "dry_run": True,
+            })()
+
+            result = run(args)
+
+            manifest = json.loads((result / "run.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["maskSource"], "file")
+            with Image.open(result / "mask.png") as saved_mask:
+                self.assertEqual(saved_mask.size, (32, 24))
+
     def test_requires_api_key_before_copying_photo(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -106,6 +157,7 @@ class SafetyAndRunTests(unittest.TestCase):
                 "image": photo,
                 "output_dir": root / "results",
                 "region": Region(.25, .25, .5, .5),
+                "mask_file": None,
                 "target": "synthetic sign",
                 "preserve": "synthetic cup",
                 "model": "gpt-image-2.5-sunburst",

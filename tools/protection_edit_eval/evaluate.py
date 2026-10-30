@@ -135,16 +135,13 @@ def create_mask(width: int, height: int, region: Region, destination: Path) -> t
     return left, top, right, bottom
 
 
-def create_preview(source_path: Path, region_px: tuple[int, int, int, int], destination: Path) -> None:
+def create_preview(source_path: Path, mask_path: Path, destination: Path) -> None:
     with Image.open(source_path) as opened:
         preview = opened.convert("RGBA")
-    overlay = Image.new("RGBA", preview.size, (0, 0, 0, 0))
-    ImageDraw.Draw(overlay).rectangle(
-        (region_px[0], region_px[1], region_px[2] - 1, region_px[3] - 1),
-        fill=(255, 50, 50, 100),
-        outline=(255, 0, 0, 230),
-        width=max(2, preview.width // 500),
-    )
+    with Image.open(mask_path) as opened_mask:
+        editable = opened_mask.getchannel("A").point(lambda alpha: 100 if alpha == 0 else 0)
+    overlay = Image.new("RGBA", preview.size, (255, 50, 50, 0))
+    overlay.putalpha(editable)
     Image.alpha_composite(preview, overlay).save(destination, format="PNG", optimize=True)
 
 
@@ -238,10 +235,12 @@ def request_edit(image_path: Path, mask_path: Path, prompt: str, model: str, qua
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="실제 사진과 직접 지정한 영역으로 보호 편집 품질을 시험합니다.")
+    parser = argparse.ArgumentParser(description="실제 사진과 지정한 마스크로 보호 편집 품질을 시험합니다.")
     parser.add_argument("--image", type=Path, required=True, help="저장소 바깥에 둔 입력 사진 경로")
-    parser.add_argument("--region", type=Region.parse, required=True, metavar="X,Y,W,H",
-                        help="편집할 사각형 영역의 정규화 좌표 (각 값 0~1)")
+    parser.add_argument("--region", type=Region.parse, metavar="X,Y,W,H",
+                        help="직접 지정할 사각형 영역의 정규화 좌표 (각 값 0~1)")
+    parser.add_argument("--mask-file", type=Path,
+                        help="텍스트 기반 마스크 생성기 또는 외부 분석에서 만든 PNG 마스크")
     parser.add_argument("--target", required=True, help="지우거나 자연스럽게 바꿀 위치 단서")
     parser.add_argument("--preserve", required=True, help="그대로 유지해야 할 주요 대상·분위기")
     parser.add_argument("--model", default="gpt-image-2.5-sunburst", help="기본 비교 모델 (편집 정밀도 기준)")
@@ -257,7 +256,12 @@ def run(args: argparse.Namespace) -> Path:
         raise ValueError("수정 대상과 보존할 내용을 비워둘 수 없습니다.")
     image_path = args.image.expanduser().resolve()
     output_root = args.output_dir.expanduser().resolve()
+    supplied_mask = args.mask_file.expanduser().resolve() if args.mask_file else None
+    if (args.region is None) == (supplied_mask is None):
+        raise ValueError("--region 또는 --mask-file 중 하나만 지정해 주세요.")
     validate_paths(image_path, output_root)
+    if supplied_mask and (not supplied_mask.is_file() or is_within(supplied_mask, REPOSITORY_ROOT)):
+        raise ValueError("mask PNG는 저장소 바깥의 파일을 지정해 주세요.")
     if not args.dry_run and not os.environ.get("OPENAI_API_KEY"):
         raise ValueError("실제 편집 실행 전 OPENAI_API_KEY 환경 변수를 설정해 주세요.")
 
@@ -268,8 +272,18 @@ def run(args: argparse.Namespace) -> Path:
     preview_path = run_dir / "mask-preview.png"
 
     width, height, image_digest = prepare_image(image_path, source_path)
-    region_px = create_mask(width, height, args.region, mask_path)
-    create_preview(source_path, region_px, preview_path)
+    if supplied_mask:
+        try:
+            with Image.open(supplied_mask) as opened_mask:
+                if opened_mask.size != (width, height) or "A" not in opened_mask.getbands():
+                    raise ValueError("mask PNG는 방향 보정된 사진과 같은 크기이며 alpha 채널이 있어야 합니다.")
+                opened_mask.convert("RGBA").save(mask_path, format="PNG", optimize=True)
+        except OSError as error:
+            raise ValueError("mask PNG를 읽을 수 없습니다.") from error
+        region_px = None
+    else:
+        region_px = create_mask(width, height, args.region, mask_path)
+    create_preview(source_path, mask_path, preview_path)
     prompt = make_prompt(args.target, args.preserve)
     manifest = {
         "createdAt": datetime.now(timezone.utc).isoformat(),
@@ -277,13 +291,17 @@ def run(args: argparse.Namespace) -> Path:
         "quality": args.quality,
         "inputSha256": image_digest,
         "orientedImageSize": {"width": width, "height": height},
-        "regionNormalized": asdict(args.region),
-        "regionPixels": {"left": region_px[0], "top": region_px[1], "right": region_px[2], "bottom": region_px[3]},
+        "maskSource": "file" if supplied_mask else "manual-rectangle",
         "target": args.target,
         "preserve": args.preserve,
         "prompt": prompt,
         "status": "dry-run" if args.dry_run else "pending",
     }
+    if args.region:
+        manifest["regionNormalized"] = asdict(args.region)
+        manifest["regionPixels"] = {
+            "left": region_px[0], "top": region_px[1], "right": region_px[2], "bottom": region_px[3]
+        }
     manifest_path = run_dir / "run.json"
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (run_dir / "review.md").write_text(REVIEW_TEMPLATE, encoding="utf-8")
