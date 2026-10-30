@@ -16,6 +16,7 @@ security:
 tags:
   - name: 자산
   - name: 단독 분석
+  - name: 다량 단독 분석
   - name: 보호 편집
 paths:
   /api/assets:
@@ -187,6 +188,56 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/inspection-batches:
+    post:
+      tags: [다량 단독 분석]
+      summary: 여러 사진을 각각 단독 분석 시작
+      description: >-
+        사진은 최대 20장까지 받으며 한 장씩 기존 단독 분석을 실행합니다.
+        사진 간 비교·공동 추론·누적 점수 계산은 하지 않습니다. 각 사진의 EXIF GPS가
+        있으면 서버가 우선하고, 없으면 그 사진 항목의 locationFallback을 사용합니다.
+        같은 Idempotency-Key와 같은 입력은 기존 묶음을 반환합니다.
+      operationId: createInspectionBatch
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InspectionBatchRequest' }
+      responses:
+        '202':
+          description: 묶음 분석 접수
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionBatch' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/inspection-batches/{batchId}:
+    parameters:
+      - name: batchId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [다량 단독 분석]
+      summary: 묶음 분석과 사진별 상태 조회
+      description: >-
+        사진별 기존 단독 분석 상태를 갱신해 반환합니다. 일시적인 분석 서버 오류가
+        발생하면 마지막으로 확인한 사진별 상태를 유지합니다. 일부 사진 실패는 다른 결과를 숨기지 않습니다.
+      operationId: getInspectionBatch
+      responses:
+        '200':
+          description: 묶음 및 항목별 진행 상태
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionBatch' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
   /api/inspections/{inspectionId}:
     parameters:
       - name: inspectionId
@@ -356,6 +407,46 @@ components:
           type: string
           maxLength: 120
           description: EXIF GPS가 없을 때만 사용하는 사용자의 촬영 위치 입력. 지도 검색/지오코딩은 지원하지 않음.
+    InspectionBatchRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: 사진별 독립 단독 분석 요청. assetId는 중복될 수 없습니다.
+          items:
+            type: object
+            required: [assetId]
+            properties:
+              assetId: { type: string, format: uuid }
+              locationFallback:
+                type: string
+                maxLength: 120
+                description: 해당 사진에 EXIF GPS가 없을 때만 사용하는 촬영 위치 입력.
+    InspectionBatch:
+      type: object
+      required: [batchId, status, mock, items]
+      properties:
+        batchId: { type: string, format: uuid }
+        status: { type: string, enum: [queued, processing, completed, partial, failed] }
+        mock: { type: boolean, description: 묶음 중 모의 드라이버 결과가 하나 이상이면 true }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/InspectionBatchItem' }
+    InspectionBatchItem:
+      type: object
+      required: [assetId, status, mock, requestedAt, updatedAt]
+      properties:
+        assetId: { type: string, format: uuid }
+        inspectionId: { type: [string, 'null'], format: uuid }
+        status: { type: string, enum: [submitting, queued, processing, completed, failed] }
+        errorCode: { type: [string, 'null'] }
+        errorMessage: { type: [string, 'null'] }
+        mock: { type: boolean }
+        requestedAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     InspectionAccepted:
       type: object
       required: [inspectionId, assetId, status]
