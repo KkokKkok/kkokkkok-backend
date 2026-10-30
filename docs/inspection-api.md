@@ -1,5 +1,7 @@
 # 검사 API·분석 드라이버 개발 계약
 
+현재 개발 엔드포인트의 기계 판독용 스키마는 [OpenAPI 초안](openapi.yaml)에 있습니다. 둘 다 미확정 파이프라인·운영 계약을 포함하지 않는 개발용 문서입니다.
+
 ## 이미지 자산·개발용 갤러리
 
 검사 흐름과 별도로 `POST /api/assets`가 업로드된 사진을 개발용 갤러리에 보관합니다. multipart 필드 `photo`는 필수이며 JPEG/PNG/WebP, 최대 10MB입니다. `labels`는 선택 반복 필드로 최대 10개, 각 40자까지 지정할 수 있습니다. 파일은 기본 `./private-data/assets`에 저장되고, H2에는 UUID·MIME 형식·크기·EXIF에서 추출한 선택 메타데이터·라벨이 기록됩니다. `ASSET_STORAGE_ROOT`로 파일 경로를 바꿀 수 있습니다.
