@@ -1,0 +1,406 @@
+openapi: 3.1.0
+info:
+  title: 꼭꼭 백엔드 API (개발 초안)
+  version: 0.1.0-draft
+  summary: 업로드, 사진별 단독 분석, 모의 보호 편집 API
+  description: >-
+    이 문서는 현재 개발 서버 구현을 프론트 연동에 참고하도록 정리한 초안입니다.
+    사용자 인증, 운영 파일 저장소, 누적 분석, 분석 파이프라인의 EXIF 입력·결과 계약은
+    확정되지 않았으므로 운영 API 명세로 취급하지 않습니다. 기본 분석·편집 드라이버는
+    합성 또는 복사 결과만 내며 mock=true를 표시합니다.
+servers:
+  - url: http://localhost:8080
+    description: 로컬 개발 서버
+security:
+  - AppApiKey: []
+tags:
+  - name: 자산
+  - name: 단독 분석
+  - name: 보호 편집
+paths:
+  /api/assets:
+    post:
+      tags: [자산]
+      summary: 사진 업로드
+      description: 원본 파일을 로컬 비공개 저장소에 저장하고 EXIF 촬영 시각·GPS를 추출합니다. 원시 GPS는 응답에 포함하지 않습니다.
+      operationId: uploadAsset
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [photo]
+              properties:
+                photo:
+                  type: string
+                  format: binary
+                  description: JPEG, PNG 또는 WebP, 최대 10 MB
+                labels:
+                  type: array
+                  maxItems: 10
+                  items:
+                    type: string
+                    maxLength: 40
+                  description: 사진에 지정할 선택 라벨. 반복 multipart 필드로 전달합니다.
+            encoding:
+              labels:
+                style: form
+                explode: true
+      responses:
+        '201':
+          description: 업로드 완료
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Asset' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '415': { $ref: '#/components/responses/UnsupportedMedia' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    get:
+      tags: [자산]
+      summary: 갤러리 목록
+      operationId: listAssets
+      responses:
+        '200':
+          description: 최근 업로드 순 자산 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Asset' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/assets/{assetId}:
+    parameters:
+      - $ref: '#/components/parameters/AssetId'
+    get:
+      tags: [자산]
+      summary: 자산 정보 조회
+      operationId: getAsset
+      responses:
+        '200':
+          description: 자산 정보
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Asset' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      tags: [자산]
+      summary: 자산 삭제
+      description: 자산 이미지 파일과 메타데이터를 삭제합니다. 파생 자산·분석 기록과의 전체 삭제 정책은 미정입니다.
+      operationId: deleteAsset
+      responses:
+        '204': { description: 삭제 완료 }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/assets/{assetId}/content:
+    parameters:
+      - $ref: '#/components/parameters/AssetId'
+    get:
+      tags: [자산]
+      summary: 비공개 이미지 내용 조회
+      operationId: getAssetContent
+      responses:
+        '200':
+          description: 저장된 이미지 바이트
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/assets/{assetId}/labels:
+    parameters:
+      - $ref: '#/components/parameters/AssetId'
+    put:
+      tags: [자산]
+      summary: 사진 라벨 교체
+      operationId: replaceAssetLabels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AssetLabelsRequest' }
+      responses:
+        '200':
+          description: 변경된 자산 정보
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Asset' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/inspections:
+    post:
+      tags: [단독 분석]
+      summary: 저장된 사진 단독 분석 시작
+      description: 자산 한 개에 대한 분석 하나를 시작합니다. 여러 사진은 이 API를 각 사진별로 호출하며 묶음 점수는 계산하지 않습니다.
+      operationId: createInspection
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InspectionRequest' }
+      responses:
+        '202':
+          description: 분석 요청 접수
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionAccepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    get:
+      tags: [단독 분석]
+      summary: 사진별 분석 이력 조회
+      description: 상태는 서버에 마지막으로 기록된 값이며 Node 상태를 자동으로 일괄 조회하지 않습니다.
+      operationId: listInspectionsByAsset
+      parameters:
+        - name: assetId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 최근 요청 순 분석 작업 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/InspectionHistoryItem' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/inspections/{inspectionId}:
+    parameters:
+      - name: inspectionId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [단독 분석]
+      summary: 분석 상태와 결과 조회
+      operationId: getInspection
+      responses:
+        '200':
+          description: 현재 분석 결과. provider 상세 필드는 파이프라인 계약이 정해질 때까지 유동적입니다.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InspectionResult' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/edits:
+    post:
+      tags: [보호 편집]
+      summary: 단서 선택 편집 요청
+      description: 개발 stub은 원본 바이트를 복사할 뿐 이미지 내용을 수정하지 않습니다. 실제 보호 편집 결과가 아닙니다.
+      operationId: createEdit
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EditRequest' }
+      responses:
+        '201':
+          description: 모의 편집 작업 완료
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EditResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/edits/{editId}:
+    parameters:
+      - name: editId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [보호 편집]
+      summary: 편집 작업 조회
+      operationId: getEdit
+      responses:
+        '200':
+          description: 편집·재검사 연결 상태
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EditResult' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /actuator/health:
+    get:
+      summary: Spring 서버 상태
+      security: []
+      responses:
+        '200':
+          description: 서버 헬스 상태. 분석 서버 가용성을 보장하지 않습니다.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+components:
+  securitySchemes:
+    AppApiKey:
+      type: apiKey
+      in: header
+      name: X-App-Api-Key
+      description: 단일 사용자 개발용 공유 키. 사용자 인증·데이터 격리를 제공하지 않습니다.
+  parameters:
+    AssetId:
+      name: assetId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    BadRequest:
+      description: 입력값 형식 오류
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: API 키 누락 또는 오류
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: 자산·작업 없음
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: 중복 요청 키 충돌 또는 처리 중인 작업
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooLarge:
+      description: 파일이 허용 용량을 초과함
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UnsupportedMedia:
+      description: 지원하지 않는 사진 형식
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+    Asset:
+      type: object
+      required: [assetId, contentType, sizeBytes, locationStatus, capturedAt, labels, assetRole, parentAssetId, mock, createdAt]
+      properties:
+        assetId: { type: string, format: uuid }
+        contentType: { type: string, enum: [image/jpeg, image/png, image/webp] }
+        sizeBytes: { type: integer, format: int64 }
+        locationStatus: { type: string, enum: [available, unavailable] }
+        capturedAt:
+          type: [string, 'null']
+          description: EXIF에 기록된 현지 촬영 시각. 시간대는 포함하지 않습니다.
+        labels:
+          type: array
+          items: { type: string }
+        assetRole: { type: string, enum: [original, edited] }
+        parentAssetId: { type: [string, 'null'], format: uuid }
+        mock: { type: boolean, description: true when this asset was produced by a mock driver }
+        createdAt: { type: string, format: date-time }
+    AssetLabelsRequest:
+      type: object
+      required: [labels]
+      properties:
+        labels:
+          type: array
+          maxItems: 10
+          items: { type: string, minLength: 1, maxLength: 40 }
+    InspectionRequest:
+      type: object
+      required: [assetId]
+      properties:
+        assetId: { type: string, format: uuid }
+    InspectionAccepted:
+      type: object
+      required: [inspectionId, assetId, status]
+      properties:
+        inspectionId: { type: string, format: uuid }
+        assetId: { type: string, format: uuid }
+        status: { type: string, enum: [queued, processing, completed, failed] }
+        mock: { type: boolean }
+        pipelineVersion: { type: string }
+        riskSummary: { type: object, additionalProperties: true }
+        riskFactors: { type: array, items: { type: object, additionalProperties: true } }
+    InspectionHistoryItem:
+      type: object
+      required: [assetId, status, requestedAt, updatedAt]
+      properties:
+        inspectionId: { type: [string, 'null'], format: uuid }
+        assetId: { type: string, format: uuid }
+        status: { type: string, enum: [submitting, queued, processing, completed, failed] }
+        requestedAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    InspectionResult:
+      type: object
+      required: [inspectionId, status]
+      properties:
+        inspectionId: { type: string, format: uuid }
+        assetId: { type: [string, 'null'], format: uuid }
+        status: { type: string, enum: [queued, processing, completed, failed] }
+        mock: { type: boolean }
+        pipelineVersion: { type: string }
+        mockNotice: { type: string }
+        riskSummary: { type: object, additionalProperties: true }
+        riskFactors: { type: array, items: { type: object, additionalProperties: true } }
+      additionalProperties: true
+    EditRequest:
+      type: object
+      required: [inspectionId, cueIds]
+      properties:
+        inspectionId: { type: string, format: uuid }
+        cueIds:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { type: string, minLength: 1, maxLength: 100 }
+        preservePrompt: { type: [string, 'null'], maxLength: 1000 }
+    EditResult:
+      type: object
+      required: [editId, inspectionId, sourceAssetId, cueIds, status, mock, createdAt, updatedAt]
+      properties:
+        editId: { type: string, format: uuid }
+        inspectionId: { type: string, format: uuid }
+        sourceAssetId: { type: string, format: uuid }
+        editedAssetId: { type: [string, 'null'], format: uuid }
+        verificationInspectionId: { type: [string, 'null'], format: uuid }
+        verificationStatus: { type: string, enum: [not_started, queued, processing, completed, failed] }
+        cueIds: { type: array, items: { type: string } }
+        status: { type: string, enum: [processing, completed, failed] }
+        mock: { type: boolean }
+        mockNotice: { type: [string, 'null'] }
+        providerVersion: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
