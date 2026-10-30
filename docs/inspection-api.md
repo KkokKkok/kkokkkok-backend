@@ -1,5 +1,27 @@
 # 통합 검사 API 계약 v1
 
+## 이미지 자산·개발용 갤러리
+
+검사 흐름과 별도로 `POST /api/assets`가 업로드된 사진을 개발용 갤러리에 보관합니다. multipart 필드 `photo`는 필수이며 JPEG/PNG/WebP, 최대 10MB입니다. `labels`는 선택 반복 필드로 최대 10개, 각 40자까지 지정할 수 있습니다. 파일은 기본 `./private-data/assets`에 저장되고, H2에는 UUID·MIME 형식·크기·EXIF에서 추출한 선택 메타데이터·라벨이 기록됩니다. `ASSET_STORAGE_ROOT`로 파일 경로를 바꿀 수 있습니다.
+
+예시 응답:
+
+```json
+{
+  "assetId":"11111111-1111-4111-8111-111111111111",
+  "contentType":"image/jpeg",
+  "sizeBytes":4,
+  "locationStatus":"unavailable",
+  "capturedAt":null,
+  "labels":["집"],
+  "createdAt":"2026-10-30T08:00:00Z"
+}
+```
+
+`GET /api/assets`는 목록, `GET /api/assets/{assetId}`는 상세, `GET /api/assets/{assetId}/content`는 비공개 이미지 바이트를 돌려줍니다. 라벨은 `PUT /api/assets/{assetId}/labels`에 `{"labels":["집"]}`로 교체하며, 자산 삭제는 `DELETE /api/assets/{assetId}`입니다. EXIF가 없거나 읽을 수 없는 경우에도 업로드는 성공하고 `locationStatus`는 `unavailable`이 됩니다. GPS 좌표와 파일 저장 키는 일반 응답에 포함하지 않습니다.
+
+현재 구현은 로컬 개발용 저장 방식이며 사용자 계정·소유권 분리와 클라우드 저장소가 없습니다. 그러므로 이 계약을 다중 사용자 프로덕션 API로 간주하지 않습니다. 이미지 자산과 분석 시작 API의 연결 및 삭제 시 파생 분석·편집 자료 처리 규칙은 후속 설계 대상입니다.
+
 현재 Spring Boot는 검사 요청을 관리하고 Node 분석 서비스를 호출하는 계층형 서버다. 기존 PoC의 `/api/analysis-jobs`와 자동 호환되지 않는다. Node에 아래 계약을 구현해야 한다. 검사 작업 메타데이터는 JPA/H2에 저장한다. 실제 사진 분석·누적 점수·사용자 계정 인증은 포함되지 않는다.
 
 ## 공통
@@ -54,7 +76,7 @@ HTTP 200. 상태는 queued/processing/completed/failed. Spring은 ID·상태를 
 {"error":{"code":"INVALID_REQUEST","message":"필수 입력과 UUID, boolean 형식을 확인해 주세요."}}
 ```
 
-400 입력 오류 / 401 앱 키 오류 / 404 작업 없음 / 409 중복 키 충돌 / 413 용량 초과 / 415 형식 오류 / 429 요청 제한 / 502 Node 오류·잘못된 응답 / 503 서버 설정 누락 / 504 연결 실패·시간 초과.
+400 입력 오류 / 401 앱 키 오류 / 404 작업·자산 없음 / 409 중복 키 충돌 / 413 용량 초과 / 415 형식 오류 / 429 요청 제한 / 502 Node 오류·잘못된 응답 / 503 서버 설정 누락 / 504 연결 실패·시간 초과.
 Node 오류 본문은 개인정보 유출을 막기 위해 전달하지 않는다.
 
 ## 호출 예시 (PowerShell)

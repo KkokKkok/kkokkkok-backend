@@ -32,7 +32,11 @@ java -jar build/libs/backend-0.0.1-SNAPSHOT.jar
 
 테스트는 모의 HTTP Node 서버를 사용합니다. 실제 OpenAI나 AWS 분석을 호출하지 않습니다. 서버 주소 미설정은 503, Node 연결 실패는 504로 응답합니다.
 
-현재 공유 앱 키는 단일 사용자 파일럿 접근 제어입니다. 사용자 계정·사진 저장·장소 관리·군집화·점수 계산·편집은 포함되지 않습니다. 검사 요청 메타데이터는 Spring의 JPA 저장소에서 관리합니다. 다중 사용자 앱에는 로그인 및 사용자별 접근권한을 먼저 추가해야 합니다. 브라우저의 교차 출처 CORS는 아직 열지 않았으며 실제 프론트 주소 확정 후 허용 목록을 설정합니다.
+현재 공유 앱 키는 단일 사용자 개발 환경의 접근 제어입니다. 계정·사용자별 권한 격리·장소 관리·군집화·점수 규칙·보호 편집은 포함되지 않습니다. 분석 작업 메타데이터는 Spring의 JPA 저장소에서 관리합니다. 다중 사용자 앱에는 로그인 및 사용자별 접근권한을 먼저 추가해야 합니다. 브라우저의 교차 출처 CORS는 아직 열지 않았으며 실제 프론트 주소 확정 후 허용 목록을 설정합니다.
+
+이미지 자산 API는 `POST /api/assets` 업로드, `GET /api/assets` 목록, `GET /api/assets/{assetId}` 상세, `GET /api/assets/{assetId}/content` 이미지 읽기, `PUT /api/assets/{assetId}/labels` 라벨 변경, `DELETE /api/assets/{assetId}` 삭제를 제공합니다. 파일은 `ASSET_STORAGE_ROOT`(기본 `./private-data/assets`) 아래 로컬에 저장하고 메타데이터·라벨은 H2에 저장합니다. JPEG/PNG/WebP만 허용하며 최대 10MB입니다. EXIF 촬영 시각과 GPS를 추출하지만 응답에는 원시 GPS를 노출하지 않습니다. EXIF 누락·손상은 업로드 실패 사유가 아닙니다.
+
+이 저장소는 개발용 단일 사용자 흐름입니다. 로그인·사용자별 권한 격리·클라우드 파일 저장·자산과 분석/편집 이력의 삭제 규칙은 아직 포함하지 않으며, 공개 서비스에 배포할 준비가 된 저장소가 아닙니다.
 
 ## 협업
 
@@ -46,9 +50,9 @@ com.kkokkkok.backend
 ├── config           Node HTTP 클라이언트 설정, 개발용 접근 키 필터
 ├── client           AnalysisClient 인터페이스, Node HTTP 구현
 ├── converter        Node 응답 → API 응답 DTO 변환
-├── domain           Inspection JPA 엔티티, 검증된 분석 입력
-├── repository       InspectionRepository (Spring Data JPA)
-├── service          InspectionService 업무 흐름, InspectionStore DB 트랜잭션
+├── domain           Inspection / ImageAsset JPA 엔티티
+├── repository       검사·이미지 자산 Spring Data JPA 저장소
+├── service          검사 흐름, 이미지 저장소·EXIF 추출, DB 업무 흐름
 ├── validation       사진·장소 입력 검증과 요청 해시 계산
 ├── web
 │   ├── controller   HTTP 입력/출력
