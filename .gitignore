@@ -7,6 +7,8 @@ HELP.md
 starter.zip
 private-data/
 *.log
+tools/protection_edit_eval/.venv/
+tools/protection_edit_eval/__pycache__/
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
