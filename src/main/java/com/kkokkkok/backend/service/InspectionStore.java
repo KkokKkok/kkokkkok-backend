@@ -5,6 +5,7 @@ import com.kkokkkok.backend.domain.Inspection;
 import com.kkokkkok.backend.repository.InspectionRepository;
 import com.kkokkkok.backend.web.dto.InspectionResponse;
 import java.util.UUID;
+import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,5 +35,10 @@ public class InspectionStore {
     @Transactional(readOnly = true)
     public UUID assetIdFor(UUID inspectionId) {
         return repository.findByInspectionId(inspectionId).map(Inspection::getAssetId).orElse(null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Inspection> historyFor(UUID assetId) {
+        return repository.findAllByAssetIdOrderByCreatedAtDesc(assetId);
     }
 }

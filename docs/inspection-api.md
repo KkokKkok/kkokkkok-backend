@@ -82,6 +82,24 @@ HTTP 200. 상태는 queued/processing/completed/failed. Spring은 ID·상태를 
 
 이미지 URL은 프론트에서 접근 가능한 URL이어야 한다. Node 내부의 상대경로를 그대로 보내면 Spring 경로로 오인될 수 있다. 만료되는 접근 URL 또는 별도 이미지 게이트웨이는 Node 저장 구조 확정 후 구현한다.
 
+## GET /api/inspections?assetId={assetId}
+
+특정 자산에서 실행된 분석 작업을 최근 요청 순으로 반환한다. 이 목록은 Spring DB에 마지막으로 기록된 상태이며 Node 상태를 일괄 조회하지 않는다. `inspectionId`가 없는 `submitting` 항목은 요청이 전달됐는지 아직 확정되지 않은 작업이다.
+
+```json
+[
+  {
+    "inspectionId":"33333333-3333-4333-8333-333333333333",
+    "assetId":"11111111-1111-4111-8111-111111111111",
+    "status":"completed",
+    "requestedAt":"2026-10-30T08:00:00Z",
+    "updatedAt":"2026-10-30T08:00:03Z"
+  }
+]
+```
+
+존재하지 않는 자산은 404입니다. 이 API는 사진 한 장의 개별 실행 기록만 제공하며 묶음·누적 결과를 계산하지 않습니다.
+
 ## 오류
 
 ```json

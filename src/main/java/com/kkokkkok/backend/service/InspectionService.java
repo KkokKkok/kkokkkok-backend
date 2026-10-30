@@ -6,6 +6,7 @@ import com.kkokkkok.backend.apiPayload.exception.ApiFailure;
 import com.kkokkkok.backend.validation.InspectionValidator;
 import com.kkokkkok.backend.web.dto.*;
 import java.util.UUID;
+import java.util.List;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
@@ -35,5 +36,10 @@ public class InspectionService {
         var result=converter.fromNode(client.get(id),id);
         store.refreshed(result);
         return converter.withAssetId(result,store.assetIdFor(result.inspectionId()));
+    }
+
+    public List<InspectionHistoryItem> history(UUID assetId) {
+        assets.get(assetId); // Fail clearly for an unknown asset instead of returning an ambiguous empty list.
+        return store.historyFor(assetId).stream().map(InspectionHistoryItem::from).toList();
     }
 }

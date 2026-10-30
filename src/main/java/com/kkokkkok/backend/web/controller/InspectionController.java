@@ -5,6 +5,7 @@ import com.kkokkkok.backend.web.dto.*;
 import jakarta.validation.Valid;
 import java.net.URI;
 import java.util.UUID;
+import java.util.List;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -22,4 +23,7 @@ public class InspectionController {
     }
     @GetMapping("/{id}")
     public InspectionResponse get(@PathVariable UUID id) {return service.get(id);}
+
+    @GetMapping(params = "assetId")
+    public List<InspectionHistoryItem> history(@RequestParam UUID assetId) { return service.history(assetId); }
 }
