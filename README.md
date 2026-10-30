@@ -16,6 +16,17 @@ $env:SERVER_ADDRESS = '127.0.0.1'
 
 기본 포트는 8080, 바인딩은 127.0.0.1입니다. `.env.example`은 참고용이며 `.env`를 자동 로드하지 않습니다. 키는 저장소에 넣지 않습니다. API 호출은 `X-App-Api-Key`에 위에서 지정한 개발 키를 넣습니다.
 
+Android 에뮬레이터와 로컬에서 연결할 때는 앱에 API 키를 넣지 않도록 `local` 프로필을 사용할 수 있습니다. 이 프로필은 API 키 검사를 끄며, 서버는 loopback 주소에만 바인딩한 상태로 실행합니다.
+
+```powershell
+$env:SPRING_PROFILES_ACTIVE = 'local'
+$env:ANALYSIS_PROVIDER = 'stub'
+$env:SERVER_ADDRESS = '127.0.0.1'
+.\gradlew.bat bootRun
+```
+
+Android 에뮬레이터에서 사용할 서버 주소는 `http://10.0.2.2:8080`입니다. `local` 프로필은 로컬 개발용으로만 사용하고 원격 또는 운영 서버에 적용하지 않습니다.
+
 Node 분석 서버를 명시적으로 연결할 때만 다음 설정을 사용합니다. Node API는 확정된 꼭꼭 파이프라인 계약과 맞춰야 합니다.
 
 ```powershell
