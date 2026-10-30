@@ -8,6 +8,7 @@ import com.kkokkkok.backend.domain.Inspection;
 import com.kkokkkok.backend.repository.InspectionRepository;
 import com.kkokkkok.backend.web.dto.EditRequest;
 import com.kkokkkok.backend.web.dto.EditResponse;
+import com.kkokkkok.backend.web.dto.InspectionRequest;
 import java.io.DataOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -29,14 +30,16 @@ public class EditService {
     private final EditClient editClient;
     private final ImageAssetService assets;
     private final EditStore store;
+    private final InspectionService inspectionService;
 
     public EditService(InspectionRepository inspections, AnalysisClient analysisClient, EditClient editClient,
-                       ImageAssetService assets, EditStore store) {
+                       ImageAssetService assets, EditStore store, InspectionService inspectionService) {
         this.inspections = inspections;
         this.analysisClient = analysisClient;
         this.editClient = editClient;
         this.assets = assets;
         this.store = store;
+        this.inspectionService = inspectionService;
     }
 
     public EditResponse create(EditRequest request, UUID editId) {
@@ -79,6 +82,14 @@ public class EditService {
                     selectedCues, preservePrompt));
             var edited = assets.storeEditedVersion(source.assetId(), output.image(), output.contentType(), output.mock());
             store.complete(editId, edited.assetId(), output.mock(), output.providerVersion(), output.mockNotice());
+            try {
+                UUID verificationKey = UUID.nameUUIDFromBytes(("edit-reinspection:" + editId).getBytes(StandardCharsets.UTF_8));
+                var verification = inspectionService.create(new InspectionRequest(edited.assetId()), verificationKey);
+                store.attachVerification(editId, verification.inspectionId(), verification.status());
+            } catch (RuntimeException verificationFailure) {
+                // Keep a successful edit even when the follow-up analysis provider is unavailable.
+                store.verificationFailed(editId);
+            }
             return EditResponse.from(store.get(editId));
         } catch (RuntimeException failure) {
             store.fail(editId);

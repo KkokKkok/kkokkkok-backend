@@ -33,6 +33,14 @@ public class EditStore {
     @Transactional
     public void fail(UUID id) { repository.findById(id).ifPresent(EditRun::fail); }
 
+    @Transactional
+    public void attachVerification(UUID id, UUID inspectionId, String status) {
+        repository.findById(id).orElseThrow().attachVerification(inspectionId, status);
+    }
+
+    @Transactional
+    public void verificationFailed(UUID id) { repository.findById(id).ifPresent(EditRun::verificationFailed); }
+
     @Transactional(readOnly = true)
     public EditRun get(UUID id) {
         return repository.findById(id).orElseThrow(() -> new ApiFailure(404, "EDIT_NOT_FOUND", "편집 작업을 찾을 수 없습니다."));

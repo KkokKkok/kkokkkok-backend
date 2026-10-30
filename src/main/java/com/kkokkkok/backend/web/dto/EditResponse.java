@@ -6,11 +6,13 @@ import java.util.List;
 import java.util.UUID;
 
 public record EditResponse(UUID editId, UUID inspectionId, UUID sourceAssetId, UUID editedAssetId,
+                           UUID verificationInspectionId, String verificationStatus,
                            List<String> cueIds, String status, boolean mock, String mockNotice,
                            String providerVersion, Instant createdAt, Instant updatedAt) {
     public static EditResponse from(EditRun run) {
         return new EditResponse(run.getEditId(), run.getInspectionId(), run.getSourceAssetId(),
-                run.getEditedAssetId(), run.getCueIds(), run.getStatus(), run.isMock(),
+                run.getEditedAssetId(), run.getVerificationInspectionId(), run.getVerificationStatus(),
+                run.getCueIds(), run.getStatus(), run.isMock(),
                 run.getMockNotice(), run.getProviderVersion(), run.getCreatedAt(), run.getUpdatedAt());
     }
 }

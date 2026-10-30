@@ -133,8 +133,16 @@ class StubAssetAnalysisFlowTest {
                 .andExpect(jsonPath("$.status").value("completed"))
                 .andExpect(jsonPath("$.mock").value(true))
                 .andExpect(jsonPath("$.mockNotice").value("모의 편집입니다. 이미지 내용은 수정하지 않았습니다."))
+                .andExpect(jsonPath("$.verificationStatus").value("queued"))
                 .andReturn();
         String editedAssetId = com.jayway.jsonpath.JsonPath.read(created.getResponse().getContentAsString(), "$.editedAssetId");
+        String verificationInspectionId = com.jayway.jsonpath.JsonPath.read(created.getResponse().getContentAsString(), "$.verificationInspectionId");
+
+        mvc.perform(get("/api/inspections/{id}", verificationInspectionId).header("X-App-Api-Key", "stub-test-key"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assetId").value(editedAssetId))
+                .andExpect(jsonPath("$.status").value("completed"))
+                .andExpect(jsonPath("$.mock").value(true));
 
         mvc.perform(get("/api/assets/{id}", sourceAssetId).header("X-App-Api-Key", "stub-test-key"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.assetRole").value("original"));
