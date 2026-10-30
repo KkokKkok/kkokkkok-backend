@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
+import evaluate
 from evaluate import Region, create_mask, prepare_image, run, validate_paths
 
 
@@ -50,6 +51,19 @@ class ImagePreparationTests(unittest.TestCase):
 
 
 class SafetyAndRunTests(unittest.TestCase):
+    def test_loads_key_from_local_env_file_without_overriding_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".env").write_text('# local only\nOPENAI_API_KEY="test-key"\nOTHER=value\n', encoding="utf-8")
+            with patch.object(evaluate, "REPOSITORY_ROOT", root), patch.dict("os.environ", {}, clear=True):
+                evaluate.load_local_api_key()
+                self.assertEqual(evaluate.os.environ["OPENAI_API_KEY"], "test-key")
+            with patch.object(evaluate, "REPOSITORY_ROOT", root), patch.dict(
+                "os.environ", {"OPENAI_API_KEY": "shell-key"}, clear=True
+            ):
+                evaluate.load_local_api_key()
+                self.assertEqual(evaluate.os.environ["OPENAI_API_KEY"], "shell-key")
+
     def test_rejects_repo_paths_for_photo_or_output(self):
         with tempfile.NamedTemporaryFile(dir=Path(__file__).resolve().parents[2]) as photo:
             with self.assertRaises(ValueError):

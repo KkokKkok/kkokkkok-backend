@@ -27,6 +27,27 @@ MAX_IMAGE_BYTES = 50 * 1024 * 1024
 MAX_MASK_BYTES = 4 * 1024 * 1024
 
 
+def load_local_api_key() -> None:
+    """Read only OPENAI_API_KEY from the ignored repository-root .env file."""
+    env_path = REPOSITORY_ROOT / ".env"
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return
+    for line in lines:
+        candidate = line.strip()
+        if not candidate or candidate.startswith("#") or "=" not in candidate:
+            continue
+        name, value = candidate.split("=", 1)
+        if name.strip() != "OPENAI_API_KEY" or os.environ.get("OPENAI_API_KEY"):
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        os.environ["OPENAI_API_KEY"] = value
+        return
+
+
 @dataclass(frozen=True)
 class Region:
     """Normalized x, y, width, height; origin is the upper-left corner."""
@@ -275,6 +296,7 @@ def run(args: argparse.Namespace) -> Path:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    load_local_api_key()
     parser = build_parser()
     args = parser.parse_args(argv)
     try:

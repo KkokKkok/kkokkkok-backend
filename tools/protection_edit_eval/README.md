@@ -28,12 +28,15 @@ tools/protection_edit_eval/.venv/bin/python tools/protection_edit_eval/evaluate.
 
 ## 실제 편집 실행
 
-zsh에서 API 키를 조용히 입력해 환경 변수로 설정한 뒤 `--dry-run`을 빼고 실행합니다. API 키를 명령 인자나 파일에 넣지 않습니다.
+저장소 루트의 `.env` 파일에 아래 항목을 입력합니다. `.env`는 Git에서 제외되어 있어 키가 커밋되지 않습니다. 이미 셸의 `OPENAI_API_KEY` 환경 변수가 설정되어 있으면 그 값을 우선 사용합니다.
 
 ```bash
-read -s "OPENAI_API_KEY?OpenAI API key: "
-export OPENAI_API_KEY
-echo
+OPENAI_API_KEY=여기에_API_키
+```
+
+키가 저장된 뒤 `--dry-run`을 빼고 실행합니다.
+
+```bash
 tools/protection_edit_eval/.venv/bin/python tools/protection_edit_eval/evaluate.py \
   --image "$HOME/Pictures/test-photo.jpg" \
   --region 0.42,0.18,0.25,0.16 \
