@@ -10,6 +10,7 @@ import io
 import json
 import math
 import os
+import ssl
 import sys
 import urllib.error
 import urllib.request
@@ -19,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
+import certifi
 from PIL import Image, ImageDraw, ImageOps
 
 
@@ -102,7 +104,10 @@ def prepare_image(image_path: Path, destination: Path) -> tuple[int, int, str]:
     digest = hashlib.sha256(original_bytes).hexdigest()
     try:
         with Image.open(image_path) as opened:
-            if opened.format not in {"JPEG", "PNG", "WEBP"}:
+            # Some iPhone camera JPEGs are detected as MPO by Pillow because
+            # they carry a multi-picture APP2 segment; the primary frame is
+            # still a regular JPEG photograph and is safe to normalize here.
+            if opened.format not in {"JPEG", "MPO", "PNG", "WEBP"}:
                 raise ValueError("JPEG, PNG 또는 WebP 사진을 선택해 주세요.")
             icc_profile = opened.info.get("icc_profile")
             image = ImageOps.exif_transpose(opened).convert("RGB")
@@ -215,7 +220,8 @@ def request_edit(image_path: Path, mask_path: Path, prompt: str, model: str, qua
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=300) as response:
+        tls_context = ssl.create_default_context(cafile=certifi.where())
+        with urllib.request.urlopen(request, timeout=300, context=tls_context) as response:
             payload = json.loads(response.read())
     except urllib.error.HTTPError as error:
         # Do not print response bodies; keep request diagnostics out of local logs.
