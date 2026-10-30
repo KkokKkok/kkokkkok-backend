@@ -104,7 +104,44 @@ HTTP 200. 상태는 queued/processing/completed/failed. Spring은 ID·상태를 
 ]
 ```
 
-존재하지 않는 자산은 404입니다. 이 API는 사진 한 장의 개별 실행 기록만 제공하며 묶음·누적 결과를 계산하지 않습니다.
+존재하지 않는 자산은 404입니다. 이 API는 사진 한 장의 개별 실행 기록만 제공합니다.
+
+## 다량 단독 분석
+
+여러 사진을 한 번에 선택한 경우에도 각 사진은 독립된 단독 분석으로 처리합니다. 사진끼리 비교하거나 누적 점수를 계산하지 않습니다. 묶음 API는 접수와 사진별 상태를 함께 관리하는 용도이며 실제 AI 파이프라인에 별도 다량 추론 계약을 요구하지 않습니다.
+
+`POST /api/inspection-batches`는 사진 1~20개의 `assetId`와 사진별 선택 위치를 받습니다. 각 자산에 EXIF GPS가 있으면 해당 사진의 `locationFallback`은 무시되고, GPS가 없으면 그 사진의 입력만 해당 단독 분석에 전달됩니다. 하나라도 자산·사진 검증에 실패하면 묶음 접수를 시작하지 않습니다. 개별 분석 서버 오류는 해당 항목만 `failed`로 기록하고 나머지 사진 요청은 계속합니다.
+
+```http
+POST /api/inspection-batches
+Idempotency-Key: <UUID>
+Content-Type: application/json
+```
+
+```json
+{
+  "items": [
+    {"assetId":"11111111-1111-4111-8111-111111111111","locationFallback":"서울 예시 위치 1"},
+    {"assetId":"22222222-2222-4222-8222-222222222222"}
+  ]
+}
+```
+
+응답은 HTTP 202이며 `Location: /api/inspection-batches/{batchId}`를 제공합니다. 각 항목은 기존 `/api/inspections/{inspectionId}`에서 조회 가능한 독립 ID를 가집니다.
+
+```json
+{
+  "batchId":"33333333-3333-4333-8333-333333333333",
+  "status":"queued",
+  "mock":true,
+  "items":[
+    {"assetId":"11111111-1111-4111-8111-111111111111","inspectionId":"44444444-4444-4444-8444-444444444444","status":"queued","errorCode":null,"errorMessage":null,"mock":true,"requestedAt":"2026-10-30T08:00:00Z","updatedAt":"2026-10-30T08:00:00Z"},
+    {"assetId":"22222222-2222-4222-8222-222222222222","inspectionId":"55555555-5555-4555-8555-555555555555","status":"queued","errorCode":null,"errorMessage":null,"mock":true,"requestedAt":"2026-10-30T08:00:00Z","updatedAt":"2026-10-30T08:00:00Z"}
+  ]
+}
+```
+
+`GET /api/inspection-batches/{batchId}`는 각 진행 중 항목의 단독 분석 상태를 새로 확인합니다. 묶음 상태는 `queued`, `processing`, `completed`, `partial`, `failed` 중 하나입니다. 분석 서버가 일시적으로 응답하지 않으면 마지막 확인 상태를 유지하고, 사진 한 장의 실패가 다른 사진 결과를 가리지 않습니다. 같은 키·같은 입력으로 다시 접수하면 기존 묶음을 반환하며, 키를 다른 입력에 재사용하면 409입니다. 현재 드라이버의 결과는 모두 합성 모의 응답입니다.
 
 ## 보호 편집 API 초안
 

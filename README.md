@@ -38,10 +38,13 @@ $env:NODE_ANALYSIS_API_KEY = 'Node와-합의한-비밀키'
 - `POST /api/inspections`: 갤러리에 보관된 사진의 `assetId`를 받아 단독 분석 시작
 - `GET /api/inspections/{id}`: 진행 상태·bbox·위험 요소·반복 노출 결과 조회
 - `GET /api/inspections?assetId={id}`: 사진 한 장의 단독 분석 이력 조회
+- `POST /api/inspection-batches`, `GET /api/inspection-batches/{batchId}`: 여러 사진을 각각 독립적으로 분석하고 묶음·사진별 상태 조회
 - `POST /api/edits`, `GET /api/edits/{editId}`: 분석 단서 선택과 모의 보호 편집 결과 조회
 - `GET /actuator/health`: Spring 서버 상태 (Node 가용성을 뜻하지 않음)
 
 분석 시작 요청은 `{"assetId":"..."}` JSON과 `Idempotency-Key` 헤더를 사용합니다. 기본 stub은 첫 응답에서 `queued`, 조회 시 `completed`와 합성 단서를 반환합니다. 이 결과는 실제 사진 분석이 아니며 `mock: true`로 표시합니다.
+
+다량 분석은 최대 20장의 기존 자산을 묶어 단독 분석을 각각 시작합니다. 사진별 EXIF GPS가 없을 때만 각 항목의 `locationFallback`을 적용합니다. 사진 간 비교나 누적 점수 계산은 하지 않으며, 분석 항목 ID와 부분 실패를 묶음 응답에서 따로 확인합니다. API JSON은 [검사 API 문서](docs/inspection-api.md#다량-단독-분석)와 [OpenAPI 초안](docs/openapi.yaml)에 있습니다.
 
 보호 편집은 현재 `EDITING_PROVIDER=stub`만 지원합니다. 선택한 단서와 보존 요청을 편집 드라이버 경계로 전달하지만, stub은 이미지 내용을 바꾸지 않고 원본의 복사본을 별도 수정 자산으로 저장합니다. 이 결과도 `mock: true`로 표시하며 실제 보호 편집 기능이나 GPT 연결로 간주하지 않습니다.
 

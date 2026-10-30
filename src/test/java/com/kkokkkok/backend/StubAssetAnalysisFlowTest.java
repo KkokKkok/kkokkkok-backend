@@ -89,6 +89,59 @@ class StubAssetAnalysisFlowTest {
     }
 
     @Test
+    void batchRunsEachPhotoAsAnIndependentMockInspectionAndCanBeRetried() throws Exception {
+        String firstAsset = uploadAsset();
+        String secondAsset = uploadAsset();
+        UUID batchId = UUID.randomUUID();
+        String body = "{\"items\":["
+                + "{\"assetId\":\"" + firstAsset + "\",\"locationFallback\":\"서울 예시 위치 1\"},"
+                + "{\"assetId\":\"" + secondAsset + "\",\"locationFallback\":\"부산 예시 위치 2\"}]}";
+
+        MvcResult started = mvc.perform(post("/api/inspection-batches")
+                        .header("X-App-Api-Key", "stub-test-key")
+                        .header("Idempotency-Key", batchId.toString())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.batchId").value(batchId.toString()))
+                .andExpect(jsonPath("$.status").value("queued"))
+                .andExpect(jsonPath("$.mock").value(true))
+                .andExpect(jsonPath("$.items", org.hamcrest.Matchers.hasSize(2)))
+                .andExpect(jsonPath("$.items[0].assetId").value(firstAsset))
+                .andExpect(jsonPath("$.items[0].inspectionId").isNotEmpty())
+                .andExpect(jsonPath("$.items[1].assetId").value(secondAsset))
+                .andReturn();
+
+        String firstInspection = com.jayway.jsonpath.JsonPath.read(started.getResponse().getContentAsString(), "$.items[0].inspectionId");
+        String secondInspection = com.jayway.jsonpath.JsonPath.read(started.getResponse().getContentAsString(), "$.items[1].inspectionId");
+        org.junit.jupiter.api.Assertions.assertNotEquals(firstInspection, secondInspection);
+
+        mvc.perform(post("/api/inspection-batches")
+                        .header("X-App-Api-Key", "stub-test-key")
+                        .header("Idempotency-Key", batchId.toString())
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.batchId").value(batchId.toString()));
+
+        mvc.perform(get("/api/inspection-batches/{id}", batchId).header("X-App-Api-Key", "stub-test-key"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("completed"))
+                .andExpect(jsonPath("$.items[0].status").value("completed"))
+                .andExpect(jsonPath("$.items[1].status").value("completed"));
+    }
+
+    @Test
+    void batchRejectsDuplicatePhotos() throws Exception {
+        String asset = uploadAsset();
+        mvc.perform(post("/api/inspection-batches")
+                        .header("X-App-Api-Key", "stub-test-key")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"items\":[{\"assetId\":\"" + asset + "\"},{\"assetId\":\"" + asset + "\"}]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("DUPLICATE_ASSET"));
+    }
+
+    @Test
     void assetHistoryContainsOnlyThatPhotosRunsInNewestFirstOrder() throws Exception {
         String assetId = uploadAsset();
         String otherAssetId = uploadAsset();
