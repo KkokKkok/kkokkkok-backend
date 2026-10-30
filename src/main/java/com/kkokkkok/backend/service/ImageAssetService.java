@@ -59,8 +59,11 @@ public class ImageAssetService {
     @Transactional(readOnly = true)
     public StoredAsset readContent(UUID id) {
         ImageAsset asset = find(id);
-        return new StoredAsset(asset.getContentType(), storage.read(asset.getStorageKey()));
+        return storedAsset(asset);
     }
+
+    @Transactional(readOnly = true)
+    public StoredAsset loadForAnalysis(UUID id) { return storedAsset(find(id)); }
 
     @Transactional
     public AssetResponse replaceLabels(UUID id, List<String> labels) {
@@ -78,6 +81,11 @@ public class ImageAssetService {
 
     private ImageAsset find(UUID id) {
         return repository.findById(id).orElseThrow(() -> new ApiFailure(404, "ASSET_NOT_FOUND", "사진을 찾을 수 없습니다."));
+    }
+
+    private StoredAsset storedAsset(ImageAsset asset) {
+        return new StoredAsset(asset.getId(), asset.getContentType(), storage.read(asset.getStorageKey()),
+                asset.getLatitude(), asset.getLongitude(), asset.getCapturedAt());
     }
 
     private List<String> normalizeLabels(List<String> labels) {
@@ -99,5 +107,6 @@ public class ImageAssetService {
         throw new ApiFailure(415, "UNSUPPORTED_PHOTO", "JPEG, PNG, WebP 사진만 지원합니다.");
     }
 
-    public record StoredAsset(String contentType, byte[] bytes) {}
+    public record StoredAsset(UUID assetId, String contentType, byte[] bytes, Double latitude,
+                              Double longitude, java.time.LocalDateTime capturedAt) {}
 }

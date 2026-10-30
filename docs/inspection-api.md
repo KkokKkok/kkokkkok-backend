@@ -1,4 +1,4 @@
-# 통합 검사 API 계약 v1
+# 검사 API·분석 드라이버 개발 계약
 
 ## 이미지 자산·개발용 갤러리
 
@@ -20,9 +20,15 @@
 
 `GET /api/assets`는 목록, `GET /api/assets/{assetId}`는 상세, `GET /api/assets/{assetId}/content`는 비공개 이미지 바이트를 돌려줍니다. 라벨은 `PUT /api/assets/{assetId}/labels`에 `{"labels":["집"]}`로 교체하며, 자산 삭제는 `DELETE /api/assets/{assetId}`입니다. EXIF가 없거나 읽을 수 없는 경우에도 업로드는 성공하고 `locationStatus`는 `unavailable`이 됩니다. GPS 좌표와 파일 저장 키는 일반 응답에 포함하지 않습니다.
 
-현재 구현은 로컬 개발용 저장 방식이며 사용자 계정·소유권 분리와 클라우드 저장소가 없습니다. 그러므로 이 계약을 다중 사용자 프로덕션 API로 간주하지 않습니다. 이미지 자산과 분석 시작 API의 연결 및 삭제 시 파생 분석·편집 자료 처리 규칙은 후속 설계 대상입니다.
+현재 구현은 로컬 개발용 저장 방식이며 사용자 계정·소유권 분리와 클라우드 저장소가 없습니다. 그러므로 이 계약을 다중 사용자 프로덕션 API로 간주하지 않습니다. 자산 삭제 뒤 분석 기록을 처리하는 규칙은 후속 설계 대상입니다.
 
-현재 Spring Boot는 검사 요청을 관리하고 Node 분석 서비스를 호출하는 계층형 서버다. 기존 PoC의 `/api/analysis-jobs`와 자동 호환되지 않는다. Node에 아래 계약을 구현해야 한다. 검사 작업 메타데이터는 JPA/H2에 저장한다. 실제 사진 분석·누적 점수·사용자 계정 인증은 포함되지 않는다.
+앱은 먼저 `/api/assets`로 사진을 저장하고 `POST /api/inspections`에 `assetId`를 전달한다. Spring은 파일을 불러와 선택한 분석 드라이버에 넘기며 작업 메타데이터와 `assetId`를 JPA/H2에 저장한다. 기존 PoC의 `/api/analysis-jobs`와 자동 호환되지 않는다. 실제 사진 분석·누적 점수·사용자 계정 인증은 포함되지 않는다.
+
+## 개발용 stub 드라이버
+
+로컬에서 요청·응답 흐름을 확인할 때는 `ANALYSIS_PROVIDER=stub`을 사용한다(기본값). 이 드라이버는 사진 바이트를 분석하지 않고 고정된 합성 단서 하나와 예시 위험 점수를 반환하며, 응답에 `mock: true`, `pipelineVersion: "stub-v1"`, 모의 결과 안내를 넣는다. 실제 사진·모델·정확도는 검증하지 않는다.
+
+실제 분석 서버 어댑터는 `ANALYSIS_PROVIDER=node`를 지정하고 `NODE_ANALYSIS_BASE_URL`, 필요시 `NODE_ANALYSIS_API_KEY`를 설정해야 한다. 앱과 API 경로는 분석기 선택에 의존하지 않도록 `AnalysisClient` 인터페이스를 경계로 둔다.
 
 ## 공통
 
@@ -33,25 +39,27 @@
 
 ## POST /api/inspections
 
-`multipart/form-data`, 필수 헤더 `Idempotency-Key: <UUID>`.
+`application/json`, 필수 헤더 `Idempotency-Key: <UUID>`.
 
 | 필드 | 규칙 |
 |---|---|
-| photo | 필수, JPEG/PNG/WebP, 최대 10MB. Spring은 파일 시그니처 검사, Node는 실제 디코딩·픽셀 제한·전처리 수행 |
-| address | 선택, 최대 500자. placeId와 동시 입력 불가 |
-| placeId | 선택, 기존 장소 UUID. Node에서 존재·접근권한 검증 |
-| locationRole | capture(촬영 장소, 기본값), sensitive(보호 장소) |
-| compareHistory | boolean, 기본 false. true이면 Node가 해당 사용자의 저장된 게시 이력을 비교 |
+| assetId | 필수 UUID. `/api/assets`에서 업로드한 자산이어야 함. 서버가 저장된 이미지와 내부 EXIF를 로드 |
 
-주소가 없는 사진도 검사할 수 있다. Node에 사용자 이력이 없으면 반복 비교를 `unavailable`로 반환하며 '노출 없음'으로 꾸미지 않는다.
+현재 `stub`은 사진 내용과 EXIF를 분석하지 않습니다. Node 어댑터에는 기존 multipart 입력을 유지하기 위해 이미지 파일과 `locationRole=capture`, `compareHistory=false`를 전달합니다. GPS·촬영 시각 필드는 Node 파이프라인 계약이 정해지지 않아 아직 전달하지 않습니다.
+
+요청 예시:
+
+```json
+{"assetId":"11111111-1111-4111-8111-111111111111"}
+```
 
 응답 HTTP 202, Location `/api/inspections/{inspectionId}`:
 
 ```json
-{"inspectionId":"11111111-1111-4111-8111-111111111111","status":"queued"}
+{"inspectionId":"11111111-1111-4111-8111-111111111111","status":"queued","assetId":"11111111-1111-4111-8111-111111111111","mock":true,"pipelineVersion":"stub-v1","riskSummary":{"score":null,"level":"pending"},"riskFactors":[]}
 ```
 
-Node는 요청을 저장·큐 등록한 뒤 즉시 응답한다. 긴 분석 완료까지 POST 연결을 유지하지 않는다. Node에서 동일 키+동일 입력은 동일 작업을 반환하고, 동일 키+다른 입력은 409를 반환해야 한다. Spring은 키와 정규화된 입력 해시를 DB에 저장해 다른 입력의 키 재사용을 409로 거절한다. 같은 입력의 재시도는 같은 키를 Node에 전달한다. 자동 재시도는 없다. 동일 키가 동시에 들어와도 DB의 PK 제약으로 하나의 요청 기록만 저장하며 Node에서도 해당 키를 중복 처리해야 한다. 타임아웃 후 앱은 같은 키와 같은 입력으로 재시도한다.
+`stub` 응답은 고정 합성 결과를 즉시 완료한 뒤 첫 응답에서 `queued`를 반환하고 GET에서 `completed`를 반환합니다. 실제 Node도 요청을 저장·큐 등록한 뒤 즉시 응답해야 하며 긴 분석 완료까지 POST 연결을 유지하지 않습니다. Spring은 키와 자산 ID·이미지 해시를 DB에 저장해 다른 입력의 키 재사용을 409로 거절합니다. 같은 자산 재시도는 같은 키를 분석 드라이버에 전달합니다. 자동 재시도는 없습니다. 타임아웃 후 앱은 같은 키와 같은 자산으로 재시도합니다.
 
 ## GET /api/inspections/{inspectionId}
 
@@ -61,6 +69,10 @@ HTTP 200. 상태는 queued/processing/completed/failed. Spring은 ID·상태를 
 {
   "inspectionId":"11111111-1111-4111-8111-111111111111",
   "status":"completed",
+  "assetId":"11111111-1111-4111-8111-111111111111",
+  "mock":true,
+  "pipelineVersion":"stub-v1",
+  "mockNotice":"모의 예시 결과이며 실제 사진을 분석하지 않았습니다.",
   "image":{"url":"https://example.invalid/images/analysis.jpg","width":1536,"height":2048,"coordinateSpace":"analysis-normalized"},
   "riskSummary":{"score":null,"level":"pending","reason":"평가 규칙 미확정"},
   "riskFactors":[{"id":"factor-1","type":"sign_text","title":"창밖 간판","description":"문자열 확인","text":"예시 상호","bbox":[0.1,0.2,0.4,0.3],"sources":["ocr","gpt"],"reviewStatus":"unreviewed"}],
@@ -73,7 +85,7 @@ HTTP 200. 상태는 queued/processing/completed/failed. Spring은 ID·상태를 
 ## 오류
 
 ```json
-{"error":{"code":"INVALID_REQUEST","message":"필수 입력과 UUID, boolean 형식을 확인해 주세요."}}
+{"error":{"code":"INVALID_REQUEST","message":"필수 입력과 UUID 형식을 확인해 주세요."}}
 ```
 
 400 입력 오류 / 401 앱 키 오류 / 404 작업·자산 없음 / 409 중복 키 충돌 / 413 용량 초과 / 415 형식 오류 / 429 요청 제한 / 502 Node 오류·잘못된 응답 / 503 서버 설정 누락 / 504 연결 실패·시간 초과.
@@ -82,8 +94,10 @@ Node 오류 본문은 개인정보 유출을 막기 위해 전달하지 않는�
 ## 호출 예시 (PowerShell)
 
 ```powershell
+$asset = curl.exe -s -X POST http://localhost:8080/api/assets -H "X-App-Api-Key: $env:APP_API_KEY" -F "photo=@C:/samples/synthetic.jpg" | ConvertFrom-Json
 $inspectionKey = [guid]::NewGuid().ToString()
-curl.exe -X POST http://localhost:8080/api/inspections -H "X-App-Api-Key: $env:APP_API_KEY" -H "Idempotency-Key: $inspectionKey" -F "photo=@C:/samples/synthetic.jpg" -F "address=합성 테스트 주소" -F "locationRole=capture" -F "compareHistory=false"
+$body = @{ assetId = $asset.assetId } | ConvertTo-Json
+curl.exe -X POST http://localhost:8080/api/inspections -H "X-App-Api-Key: $env:APP_API_KEY" -H "Idempotency-Key: $inspectionKey" -H "Content-Type: application/json" -d $body
 curl.exe http://localhost:8080/api/inspections/11111111-1111-4111-8111-111111111111 -H "X-App-Api-Key: $env:APP_API_KEY"
 ```
 

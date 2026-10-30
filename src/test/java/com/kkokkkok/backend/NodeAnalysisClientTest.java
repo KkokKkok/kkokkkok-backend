@@ -12,13 +12,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
-import org.springframework.mock.web.MockMultipartFile;
 import static org.junit.jupiter.api.Assertions.*;
 
 class NodeAnalysisClientTest {
-    private InspectionRequest request(MockMultipartFile photo,String address) {
-        var request=new InspectionRequest(); request.setPhoto(photo); request.setAddress(address); request.setCompareHistory(true); return request;
-    }
     @Test void sendsMultipartAndRetrievesJobWithoutLeakingUpstreamError() throws Exception {
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
         var id = UUID.randomUUID(); var key = UUID.randomUUID();
@@ -33,9 +29,11 @@ class NodeAnalysisClientTest {
         server.start();
         try {
             var client = new NodeAnalysisClient(new AnalysisClientConfig().analysisRestClient("http://127.0.0.1:"+server.getAddress().getPort(),"secret",2),"configured");
-            var photo = new MockMultipartFile("photo","private.jpg","image/jpeg",new byte[]{(byte)255,(byte)216,(byte)255,0});
-            assertEquals(id.toString(),client.create(new InspectionValidator().validate(request(photo,"synthetic address")),key).get("inspectionId"));
-            assertTrue(request.get().contains(key.toString())); assertTrue(request.get().contains("synthetic address"));
+            var assetId=UUID.randomUUID();
+            var input = new com.kkokkkok.backend.domain.InspectionSubmission(assetId,
+                    new byte[]{(byte)255,(byte)216,(byte)255,0},"image/jpeg",null,null,null,"synthetic-fingerprint");
+            assertEquals(id.toString(),client.create(input,key).get("inspectionId"));
+            assertTrue(request.get().contains(key.toString()));
             assertTrue(request.get().contains("compareHistory")); assertFalse(request.get().contains("private.jpg"));
             assertEquals("queued",client.get(id).get("status"));
             assertEquals(502,assertThrows(ApiFailure.class,()->new InspectionConverter().fromNode(client.get(id),UUID.randomUUID())).status);
@@ -47,7 +45,8 @@ class NodeAnalysisClientTest {
     @Test void rejectsInvalidPhotoAndReportsMissingConfiguration() {
         var client = new NodeAnalysisClient(new AnalysisClientConfig().analysisRestClient("","",2),"");
         assertEquals(503,assertThrows(ApiFailure.class,()->client.get(UUID.randomUUID())).status);
-        var file = new MockMultipartFile("photo","fake.jpg","image/jpeg","not an image".getBytes());
-        assertEquals(415,assertThrows(ApiFailure.class,()->new InspectionValidator().validate(request(file,null))).status);
+        UUID assetId=UUID.randomUUID();
+        var asset=new com.kkokkkok.backend.service.ImageAssetService.StoredAsset(assetId,"image/jpeg","not an image".getBytes(),null,null,null);
+        assertEquals(415,assertThrows(ApiFailure.class,()->new InspectionValidator().validate(new InspectionRequest(assetId),asset)).status);
     }
 }

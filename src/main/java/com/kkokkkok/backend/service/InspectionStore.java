@@ -14,11 +14,11 @@ public class InspectionStore {
     private final InspectionRepository repository;
     public InspectionStore(InspectionRepository repository) {this.repository=repository;}
     @Transactional
-    public void reserve(UUID key,String fingerprint) {
+    public void reserve(UUID key,String fingerprint,UUID assetId) {
         var existing=repository.findById(key);
         if(existing.isPresent()) {
             if(!existing.get().getFingerprint().equals(fingerprint)) throw new ApiFailure(409,"IDEMPOTENCY_CONFLICT","같은 키로 다른 입력을 요청할 수 없습니다.");
-        } else repository.saveAndFlush(new Inspection(key,fingerprint));
+        } else repository.saveAndFlush(new Inspection(key,fingerprint,assetId));
     }
     @Transactional
     public void submitted(UUID key,InspectionResponse response) {
@@ -29,5 +29,10 @@ public class InspectionStore {
     @Transactional
     public void refreshed(InspectionResponse response) {
         repository.findByInspectionId(response.inspectionId()).ifPresent(entity->entity.update(response.inspectionId(),response.status()));
+    }
+
+    @Transactional(readOnly = true)
+    public UUID assetIdFor(UUID inspectionId) {
+        return repository.findByInspectionId(inspectionId).map(Inspection::getAssetId).orElse(null);
     }
 }

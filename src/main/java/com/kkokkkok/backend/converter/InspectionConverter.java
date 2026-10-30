@@ -7,6 +7,13 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class InspectionConverter {
+    public InspectionResponse withAssetId(InspectionResponse response,UUID assetId) {
+        if (assetId == null) return response;
+        Map<String,Object> details=new LinkedHashMap<>(response.details());
+        details.put("assetId",assetId.toString());
+        return new InspectionResponse(response.inspectionId(),response.status(),Collections.unmodifiableMap(details));
+    }
+
     public InspectionResponse fromNode(Map<String,Object> body,UUID expected) {
         try {
             if(body==null) throw new IllegalArgumentException();
