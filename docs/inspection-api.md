@@ -37,7 +37,7 @@
 
 ## 공통
 
-- Spring 요청: `X-App-Api-Key`. 단일 사용자 개발 환경용 공유 키이며 사용자 계정 인증이 아니다. 여러 사용자의 데이터는 이 구조로 격리되지 않으므로 다중 사용자 서비스 전 인증/소유권 검증을 구현한다.
+- 기본 Spring 요청에는 `X-App-Api-Key`가 필요하다. 단일 사용자 개발 환경용 공유 키이며 사용자 계정 인증이 아니다. 로컬 에뮬레이터 연동 시에만 `SPRING_PROFILES_ACTIVE=local` 프로필로 키 검사를 끌 수 있으며 서버를 loopback에 바인딩한다. 여러 사용자의 데이터는 이 구조로 격리되지 않으므로 다중 사용자 서비스 전 인증/소유권 검증을 구현한다.
 - Spring → Node: 설정된 `X-Analysis-Api-Key`를 전달한다. Node는 이를 검증해야 한다.
 - 응답: JSON, `Cache-Control: no-store`. 사진·주소·응답·비밀키는 로그에 남기지 않는다.
 - ID는 UUID. 분석 이미지 좌표는 `analysis-normalized`, bbox는 `[x1,y1,x2,y2]`, 각 값 0~1. GPS는 bbox null.
