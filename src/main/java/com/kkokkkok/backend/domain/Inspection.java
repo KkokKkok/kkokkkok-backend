@@ -33,4 +33,6 @@ public class Inspection {
     public String getFingerprint() {return fingerprint;}
     public UUID getAssetId() {return assetId;}
     public String getStatus() {return status;}
+    public Instant getCreatedAt() {return createdAt;}
+    public Instant getUpdatedAt() {return updatedAt;}
 }

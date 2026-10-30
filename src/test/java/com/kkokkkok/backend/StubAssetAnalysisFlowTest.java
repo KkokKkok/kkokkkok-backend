@@ -86,4 +86,43 @@ class StubAssetAnalysisFlowTest {
                         .content("{\"assetId\":\"not-a-uuid\"}"))
                 .andExpect(status().isBadRequest());
     }
+
+    @Test
+    void assetHistoryContainsOnlyThatPhotosRunsInNewestFirstOrder() throws Exception {
+        String assetId = uploadAsset();
+        String otherAssetId = uploadAsset();
+        UUID firstKey = UUID.randomUUID();
+        UUID secondKey = UUID.randomUUID();
+        UUID otherKey = UUID.randomUUID();
+        startAnalysis(assetId, firstKey);
+        Thread.sleep(5);
+        startAnalysis(assetId, secondKey);
+        startAnalysis(otherAssetId, otherKey);
+
+        mvc.perform(get("/api/inspections").param("assetId", assetId)
+                        .header("X-App-Api-Key", "stub-test-key"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$", org.hamcrest.Matchers.hasSize(2)))
+                .andExpect(jsonPath("$[0].inspectionId").value(secondKey.toString()))
+                .andExpect(jsonPath("$[1].inspectionId").value(firstKey.toString()))
+                .andExpect(jsonPath("$[0].assetId").value(assetId));
+    }
+
+    private String uploadAsset() throws Exception {
+        var photo = new MockMultipartFile("photo", "synthetic.jpg", "image/jpeg",
+                new byte[]{(byte) 0xff, (byte) 0xd8, (byte) 0xff, 0});
+        MvcResult upload = mvc.perform(multipart("/api/assets").file(photo)
+                        .header("X-App-Api-Key", "stub-test-key"))
+                .andExpect(status().isCreated()).andReturn();
+        return com.jayway.jsonpath.JsonPath.read(upload.getResponse().getContentAsString(), "$.assetId");
+    }
+
+    private void startAnalysis(String assetId, UUID requestId) throws Exception {
+        mvc.perform(post("/api/inspections")
+                        .header("X-App-Api-Key", "stub-test-key")
+                        .header("Idempotency-Key", requestId.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"assetId\":\"" + assetId + "\"}"))
+                .andExpect(status().isAccepted());
+    }
 }

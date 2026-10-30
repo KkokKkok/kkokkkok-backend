@@ -26,6 +26,7 @@ $env:NODE_ANALYSIS_API_KEY = 'Node와-합의한-비밀키'
 
 - `POST /api/inspections`: 갤러리에 보관된 사진의 `assetId`를 받아 단독 분석 시작
 - `GET /api/inspections/{id}`: 진행 상태·bbox·위험 요소·반복 노출 결과 조회
+- `GET /api/inspections?assetId={id}`: 사진 한 장의 단독 분석 이력 조회
 - `GET /actuator/health`: Spring 서버 상태 (Node 가용성을 뜻하지 않음)
 
 분석 시작 요청은 `{"assetId":"..."}` JSON과 `Idempotency-Key` 헤더를 사용합니다. 기본 stub은 첫 응답에서 `queued`, 조회 시 `completed`와 합성 단서를 반환합니다. 이 결과는 실제 사진 분석이 아니며 `mock: true`로 표시합니다.
