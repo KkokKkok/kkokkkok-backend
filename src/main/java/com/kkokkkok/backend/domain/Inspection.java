@@ -11,13 +11,14 @@ public class Inspection {
     @Id private UUID requestId;
     @Column(nullable=false,length=64,updatable=false) private String fingerprint;
     @Column(unique=true) private UUID inspectionId;
+    @Column(name="asset_id") private UUID assetId;
     @Column(nullable=false,length=32) private String status;
     @Column(nullable=false,updatable=false) private Instant createdAt;
     @Column(nullable=false) private Instant updatedAt;
     @Version private Long version;
     protected Inspection() {}
-    public Inspection(UUID requestId,String fingerprint) {
-        this.requestId=requestId; this.fingerprint=fingerprint; status="submitting";
+    public Inspection(UUID requestId,String fingerprint,UUID assetId) {
+        this.requestId=requestId; this.fingerprint=fingerprint; this.assetId=assetId; status="submitting";
         createdAt=Instant.now(); updatedAt=createdAt;
     }
     public void update(UUID id,String nextStatus) {
@@ -30,5 +31,6 @@ public class Inspection {
     public UUID getRequestId() {return requestId;}
     public UUID getInspectionId() {return inspectionId;}
     public String getFingerprint() {return fingerprint;}
+    public UUID getAssetId() {return assetId;}
     public String getStatus() {return status;}
 }

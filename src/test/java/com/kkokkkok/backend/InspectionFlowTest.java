@@ -39,42 +39,58 @@ class InspectionFlowTest {
         } catch(Exception e) {throw new ExceptionInInitializerError(e);}
     }
     @DynamicPropertySource static void properties(DynamicPropertyRegistry r) {
+        r.add("analysis.provider",()->"node");
         r.add("analysis.base-url",()->"http://127.0.0.1:"+NODE.getAddress().getPort());
         r.add("app.api-key",()->"test-key");
         r.add("spring.datasource.url",()->"jdbc:h2:mem:flow-test;DB_CLOSE_DELAY=-1");
     }
     @AfterAll static void stopNode() {NODE.stop(0);}
-    HttpResponse<String> post(UUID key,String address) throws Exception {
+    HttpResponse<String> uploadAsset() throws Exception {
         String prefix="--boundary\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"photo.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n";
-        String suffix="\r\n--boundary\r\nContent-Disposition: form-data; name=\"address\"\r\n\r\n"+address+"\r\n--boundary--\r\n";
+        String suffix="\r\n--boundary\r\nContent-Disposition: form-data; name=\"labels\"\r\n\r\n테스트\r\n--boundary--\r\n";
         var body=new java.io.ByteArrayOutputStream();body.write(prefix.getBytes(StandardCharsets.UTF_8));
         body.write(new byte[]{(byte)255,(byte)216,(byte)255,0});body.write(suffix.getBytes(StandardCharsets.UTF_8));
-        return http.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+port+"/api/inspections"))
-            .header("X-App-Api-Key","test-key").header("Idempotency-Key",key.toString())
+        return http.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+port+"/api/assets"))
+            .header("X-App-Api-Key","test-key")
             .header("Content-Type","multipart/form-data; boundary=boundary")
             .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray())).build(),HttpResponse.BodyHandlers.ofString());
     }
+    HttpResponse<String> post(UUID key,UUID assetId) throws Exception {
+        var requestBody="{\"assetId\":\""+assetId+"\"}";
+        return http.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+port+"/api/inspections"))
+            .header("X-App-Api-Key","test-key").header("Idempotency-Key",key.toString())
+            .header("Content-Type","application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(requestBody)).build(),HttpResponse.BodyHandlers.ofString());
+    }
     @Test void fullHttpFlowPersistsJobAndRejectsChangedRetry() throws Exception {
         UUID key=UUID.randomUUID();
-        var created=post(key,"synthetic address");
+        var uploaded=uploadAsset(); assertEquals(201,uploaded.statusCode(),uploaded.body());
+        UUID assetId=UUID.fromString(com.jayway.jsonpath.JsonPath.read(uploaded.body(),"$.assetId"));
+        var created=post(key,assetId);
         assertEquals(202,created.statusCode(),created.body());
         assertEquals("/api/inspections/"+JOB,created.headers().firstValue("Location").orElseThrow());
         assertTrue(created.body().contains("\"riskFactors\":[]"));
+        assertTrue(created.body().contains("\"assetId\":\""+assetId+"\""));
         assertFalse(created.body().contains("\"details\""));
         assertEquals(JOB,repository.findById(key).orElseThrow().getInspectionId());
-        assertEquals(202,post(key,"synthetic address").statusCode());
+        assertEquals(assetId,repository.findById(key).orElseThrow().getAssetId());
+        assertEquals(202,post(key,assetId).statusCode());
         int calls=POSTS.get();
-        assertEquals(409,post(key,"different address").statusCode());
+        var otherUpload=uploadAsset();
+        UUID otherAssetId=UUID.fromString(com.jayway.jsonpath.JsonPath.read(otherUpload.body(),"$.assetId"));
+        assertEquals(409,post(key,otherAssetId).statusCode());
         assertEquals(calls,POSTS.get());
         var uri=URI.create("http://127.0.0.1:"+port+"/api/inspections/"+JOB);
         var get=HttpRequest.newBuilder(uri).header("X-App-Api-Key","test-key").GET().build();
-        assertEquals(200,http.send(get,HttpResponse.BodyHandlers.ofString()).statusCode());
+        var fetched=http.send(get,HttpResponse.BodyHandlers.ofString());
+        assertEquals(200,fetched.statusCode());
+        assertTrue(fetched.body().contains("\"assetId\":\""+assetId+"\""));
         assertEquals("completed",repository.findById(key).orElseThrow().getStatus());
         assertEquals(401,http.send(HttpRequest.newBuilder(uri).GET().build(),HttpResponse.BodyHandlers.ofString()).statusCode());
         var invalidPost=HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+port+"/api/inspections"))
             .header("X-App-Api-Key","test-key").header("Content-Type","application/json")
             .POST(HttpRequest.BodyPublishers.ofString("{}")).build();
-        assertEquals(415,http.send(invalidPost,HttpResponse.BodyHandlers.ofString()).statusCode());
+        assertEquals(400,http.send(invalidPost,HttpResponse.BodyHandlers.ofString()).statusCode());
         NODE_STATUS.set(500);
         var failed=http.send(get,HttpResponse.BodyHandlers.ofString());
         assertEquals(502,failed.statusCode());assertFalse(failed.body().contains("private upstream"));

@@ -5,6 +5,7 @@ import com.kkokkkok.backend.domain.InspectionSubmission;
 import java.util.*;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.*;
@@ -13,6 +14,7 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.*;
 
 @Component
+@ConditionalOnProperty(prefix="analysis", name="provider", havingValue="node")
 public class NodeAnalysisClient implements AnalysisClient {
     private static final ParameterizedTypeReference<Map<String,Object>> BODY=new ParameterizedTypeReference<>() {};
     private final RestClient client;
@@ -26,9 +28,9 @@ public class NodeAnalysisClient implements AnalysisClient {
         parts.add("photo",new HttpEntity<>(new ByteArrayResource(input.photo()) {
             @Override public String getFilename() {return "photo."+(input.contentType().equals("image/jpeg")?"jpg":input.contentType().substring(6));}
         },headers));
-        if(input.address()!=null) parts.add("address",input.address());
-        if(input.placeId()!=null) parts.add("placeId",input.placeId());
-        parts.add("locationRole",input.locationRole()); parts.add("compareHistory",String.valueOf(input.compareHistory()));
+        // Keep the current Node multipart contract while its EXIF/location input is being agreed.
+        parts.add("locationRole","capture");
+        parts.add("compareHistory","false");
         return call(()->client.post().uri("/api/inspections").header("Idempotency-Key",key.toString())
             .contentType(MediaType.MULTIPART_FORM_DATA).body(parts).retrieve().body(BODY));
     }
