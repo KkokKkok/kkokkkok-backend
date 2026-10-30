@@ -4,7 +4,7 @@
 
 ## 이미지 자산·개발용 갤러리
 
-검사 흐름과 별도로 `POST /api/assets`가 업로드된 사진을 개발용 갤러리에 보관합니다. multipart 필드 `photo`는 필수이며 JPEG/PNG/WebP, 최대 10MB입니다. `labels`는 선택 반복 필드로 최대 10개, 각 40자까지 지정할 수 있습니다. 파일은 기본 `./private-data/assets`에 저장되고, H2에는 UUID·MIME 형식·크기·EXIF에서 추출한 선택 메타데이터·라벨이 기록됩니다. `ASSET_STORAGE_ROOT`로 파일 경로를 바꿀 수 있습니다.
+검사 흐름과 별도로 `POST /api/assets`가 업로드된 사진을 개발용 갤러리에 보관합니다. multipart 필드 `photo`는 필수이며 JPEG/PNG/WebP, 최대 10MB입니다. `labels`는 선택 반복 필드로 최대 10개, 각 40자까지 지정할 수 있습니다. 이 값은 집·회사 등 사진에 붙이는 분류 태그이며 위치 좌표나 민감 장소 정보가 아닙니다. 추후 누적 분석에 활용할 예정이며 현재 단독 분석 요청에는 따로 전달하지 않습니다. 파일은 기본 `./private-data/assets`에 저장되고, H2에는 UUID·MIME 형식·크기·EXIF에서 추출한 선택 메타데이터·태그가 기록됩니다. `ASSET_STORAGE_ROOT`로 파일 경로를 바꿀 수 있습니다.
 
 예시 응답:
 
@@ -50,7 +50,7 @@
 |---|---|
 | assetId | 필수 UUID. `/api/assets`에서 업로드한 자산이어야 함. 서버가 저장된 이미지와 내부 EXIF를 로드 |
 
-현재 `stub`은 사진 내용과 EXIF를 분석하지 않습니다. Node 어댑터에는 기존 multipart 입력을 유지하기 위해 이미지 파일과 `locationRole=capture`, `compareHistory=false`를 전달합니다. GPS·촬영 시각 필드는 Node 파이프라인 계약이 정해지지 않아 아직 전달하지 않습니다.
+현재 `stub`은 사진 내용과 EXIF를 분석하지 않습니다. 앱은 `assetId`만 보내고 Spring이 저장된 사진을 분석 드라이버에 전달합니다. Node 어댑터에는 기존 multipart 입력을 유지하기 위해 이미지 파일과 `locationRole=capture`, `compareHistory=false`를 전달합니다. GPS·촬영 시각을 Node 파이프라인에 전달하는 형식은 계약이 정해지지 않아 아직 전달하지 않습니다. 사진 태그도 분석 요청에 포함하지 않습니다.
 
 요청 예시:
 
