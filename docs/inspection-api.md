@@ -131,6 +131,8 @@ stub은 즉시 처리하므로 성공 시 `201 Created`를 반환합니다. 요�
   "inspectionId":"33333333-3333-4333-8333-333333333333",
   "sourceAssetId":"11111111-1111-4111-8111-111111111111",
   "editedAssetId":"66666666-6666-4666-8666-666666666666",
+  "verificationInspectionId":"77777777-7777-4777-8777-777777777777",
+  "verificationStatus":"queued",
   "cueIds":["stub-clue-1"],
   "status":"completed",
   "mock":true,
@@ -141,7 +143,7 @@ stub은 즉시 처리하므로 성공 시 `201 Created`를 반환합니다. 요�
 }
 ```
 
-`GET /api/edits/{editId}`에서 같은 작업 결과를 다시 조회할 수 있습니다. 같은 idempotency key와 같은 입력은 기존 작업을 반환하고, 다른 입력은 409입니다. 실제 이미지 생성, GPT 연결, 재검사, 수정본 EXIF/GPS 제거 정책은 이 모의 구현에 포함하지 않습니다. 모의 수정본에는 원본과 같은 이미지 바이트가 있을 수 있으므로 보호된 결과로 사용하면 안 됩니다.
+수정 자산은 동일한 분석 드라이버로 재검사되고, 최초 응답에는 재검사 ID와 마지막으로 확인된 상태가 포함됩니다. 최신 상태·결과는 `GET /api/inspections/{verificationInspectionId}`에서 조회합니다. `GET /api/edits/{editId}`는 편집 기록을 다시 반환합니다. 같은 idempotency key와 같은 입력은 기존 작업을 반환하고, 다른 입력은 409입니다. 실제 이미지 생성, GPT 연결, 수정본 EXIF/GPS 제거 정책은 이 모의 구현에 포함하지 않습니다. 모의 수정본에는 원본과 같은 이미지 바이트가 있을 수 있으므로 보호된 결과로 사용하면 안 됩니다.
 
 ## 오류
 
