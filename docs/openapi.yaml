@@ -42,7 +42,7 @@ paths:
                   items:
                     type: string
                     maxLength: 40
-                  description: 사진에 지정할 선택 라벨. 반복 multipart 필드로 전달합니다.
+                  description: "사진 분류 태그(예: 집, 회사). 위치 좌표나 민감 장소 데이터가 아닙니다. 반복 multipart 필드로 전달하며 추후 누적 분석에서 활용할 수 있습니다."
             encoding:
               labels:
                 style: form
@@ -118,7 +118,7 @@ paths:
       - $ref: '#/components/parameters/AssetId'
     put:
       tags: [자산]
-      summary: 사진 라벨 교체
+      summary: 사진 태그 교체
       operationId: replaceAssetLabels
       requestBody:
         required: true
@@ -325,6 +325,7 @@ components:
           description: EXIF에 기록된 현지 촬영 시각. 시간대는 포함하지 않습니다.
         labels:
           type: array
+          description: 사진에 붙이는 분류 태그. 위치 좌표나 민감 장소를 의미하지 않습니다.
           items: { type: string }
         assetRole: { type: string, enum: [original, edited] }
         parentAssetId: { type: [string, 'null'], format: uuid }
@@ -337,6 +338,7 @@ components:
         labels:
           type: array
           maxItems: 10
+          description: "사진에 붙이는 분류 태그(예: 집, 회사). 추후 누적 분석에서 활용할 수 있습니다."
           items: { type: string, minLength: 1, maxLength: 40 }
     InspectionRequest:
       type: object
