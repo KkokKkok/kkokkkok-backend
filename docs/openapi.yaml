@@ -139,7 +139,9 @@ paths:
       tags: [단독 분석]
       summary: 저장된 사진 단독 분석 시작
       description: >-
-        저장된 자산 한 개의 단독 분석을 시작합니다. 앱은 assetId만 전달하며,
+        저장된 자산 한 개의 단독 분석을 시작합니다. EXIF GPS가 없는 경우에만
+        locationFallback에 사용자가 입력한 촬영 위치를 전달할 수 있습니다.
+        EXIF GPS가 있으면 서버가 우선하고 수동 입력값은 무시합니다.
         사진 태그는 자산에 보관하고 분석 요청에는 별도로 포함하지 않습니다.
         여러 사진은 각 자산마다 이 API를 따로 호출하며 묶음 점수는 계산하지 않습니다.
         서버가 읽은 EXIF 메타데이터를 실제 분석 드라이버에 전달하는 형식은 파이프라인 합의 전까지 미정입니다.
@@ -346,10 +348,14 @@ components:
           items: { type: string, minLength: 1, maxLength: 40 }
     InspectionRequest:
       type: object
-      description: 저장된 사진 자산 한 개를 분석합니다. 사진 태그는 이 요청에 포함하지 않습니다.
+      description: 저장된 사진 자산 한 개를 분석합니다. 사진 태그는 이 요청에 포함하지 않습니다. EXIF GPS가 없을 때 locationFallback으로 촬영 위치를 보완할 수 있습니다.
       required: [assetId]
       properties:
         assetId: { type: string, format: uuid }
+        locationFallback:
+          type: string
+          maxLength: 120
+          description: EXIF GPS가 없을 때만 사용하는 사용자의 촬영 위치 입력. 지도 검색/지오코딩은 지원하지 않음.
     InspectionAccepted:
       type: object
       required: [inspectionId, assetId, status]
