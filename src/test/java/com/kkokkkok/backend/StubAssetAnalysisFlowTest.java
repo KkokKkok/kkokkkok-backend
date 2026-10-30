@@ -1,5 +1,6 @@
 package com.kkokkkok.backend;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -106,6 +107,58 @@ class StubAssetAnalysisFlowTest {
                 .andExpect(jsonPath("$[0].inspectionId").value(secondKey.toString()))
                 .andExpect(jsonPath("$[1].inspectionId").value(firstKey.toString()))
                 .andExpect(jsonPath("$[0].assetId").value(assetId));
+    }
+
+    @Test
+    void stubEditKeepsOriginalAndCreatesExplicitlyMockedDerivedAsset() throws Exception {
+        String sourceAssetId = uploadAsset();
+        UUID inspectionId = UUID.randomUUID();
+        startAnalysis(sourceAssetId, inspectionId);
+        mvc.perform(get("/api/inspections/{id}", inspectionId).header("X-App-Api-Key", "stub-test-key"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("completed"));
+
+        mvc.perform(post("/api/edits").header("X-App-Api-Key", "stub-test-key")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"inspectionId\":\"" + inspectionId + "\",\"cueIds\":[\"unknown-cue\"]}"))
+                .andExpect(status().isBadRequest());
+
+        UUID editId = UUID.randomUUID();
+        String editRequest = "{\"inspectionId\":\"" + inspectionId + "\",\"cueIds\":[\"stub-clue-1\"],\"preservePrompt\":\"분위기는 유지해 주세요.\"}";
+        MvcResult created = mvc.perform(post("/api/edits")
+                        .header("X-App-Api-Key", "stub-test-key")
+                        .header("Idempotency-Key", editId.toString())
+                        .contentType(MediaType.APPLICATION_JSON).content(editRequest))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("completed"))
+                .andExpect(jsonPath("$.mock").value(true))
+                .andExpect(jsonPath("$.mockNotice").value("모의 편집입니다. 이미지 내용은 수정하지 않았습니다."))
+                .andReturn();
+        String editedAssetId = com.jayway.jsonpath.JsonPath.read(created.getResponse().getContentAsString(), "$.editedAssetId");
+
+        mvc.perform(get("/api/assets/{id}", sourceAssetId).header("X-App-Api-Key", "stub-test-key"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.assetRole").value("original"));
+        mvc.perform(get("/api/assets/{id}", editedAssetId).header("X-App-Api-Key", "stub-test-key"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assetRole").value("edited"))
+                .andExpect(jsonPath("$.parentAssetId").value(sourceAssetId))
+                .andExpect(jsonPath("$.mock").value(true));
+        MvcResult originalBytes = mvc.perform(get("/api/assets/{id}/content", sourceAssetId)
+                        .header("X-App-Api-Key", "stub-test-key")).andExpect(status().isOk()).andReturn();
+        MvcResult editedBytes = mvc.perform(get("/api/assets/{id}/content", editedAssetId)
+                        .header("X-App-Api-Key", "stub-test-key")).andExpect(status().isOk()).andReturn();
+        assertArrayEquals(originalBytes.getResponse().getContentAsByteArray(), editedBytes.getResponse().getContentAsByteArray());
+
+        mvc.perform(get("/api/edits/{id}", editId).header("X-App-Api-Key", "stub-test-key"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.editedAssetId").value(editedAssetId));
+        mvc.perform(post("/api/edits").header("X-App-Api-Key", "stub-test-key")
+                        .header("Idempotency-Key", editId.toString())
+                        .contentType(MediaType.APPLICATION_JSON).content(editRequest))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.editedAssetId").value(editedAssetId));
+        mvc.perform(post("/api/edits").header("X-App-Api-Key", "stub-test-key")
+                        .header("Idempotency-Key", editId.toString()).contentType(MediaType.APPLICATION_JSON)
+                        .content(editRequest.replace("분위기는 유지해 주세요.", "음식은 유지해 주세요.")))
+                .andExpect(status().isConflict());
     }
 
     private String uploadAsset() throws Exception {

@@ -30,6 +30,14 @@ public class ImageAsset {
     @Column(nullable = false, length = 160)
     private String storageKey;
 
+    @Column(nullable = false, length = 16)
+    private String assetRole;
+
+    private UUID parentAssetId;
+
+    @Column(nullable = false)
+    private boolean mock;
+
     // Coordinates are deliberately omitted from public DTOs; they may expose a sensitive location.
     private Double latitude;
     private Double longitude;
@@ -50,11 +58,15 @@ public class ImageAsset {
 
     public ImageAsset(UUID id, String contentType, long sizeBytes, String storageKey,
                       Double latitude, Double longitude, LocalDateTime capturedAt,
-                      String locationStatus, List<String> labels) {
+                      String locationStatus, List<String> labels, String assetRole,
+                      UUID parentAssetId, boolean mock) {
         this.id = id;
         this.contentType = contentType;
         this.sizeBytes = sizeBytes;
         this.storageKey = storageKey;
+        this.assetRole = assetRole;
+        this.parentAssetId = parentAssetId;
+        this.mock = mock;
         this.latitude = latitude;
         this.longitude = longitude;
         this.capturedAt = capturedAt;
@@ -68,6 +80,9 @@ public class ImageAsset {
     public String getContentType() { return contentType; }
     public long getSizeBytes() { return sizeBytes; }
     public String getStorageKey() { return storageKey; }
+    public String getAssetRole() { return assetRole; }
+    public UUID getParentAssetId() { return parentAssetId; }
+    public boolean isMock() { return mock; }
     public Double getLatitude() { return latitude; }
     public Double getLongitude() { return longitude; }
     public LocalDateTime getCapturedAt() { return capturedAt; }
