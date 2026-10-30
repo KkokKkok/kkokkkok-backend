@@ -14,11 +14,14 @@
   "locationStatus":"unavailable",
   "capturedAt":null,
   "labels":["집"],
+  "assetRole":"original",
+  "parentAssetId":null,
+  "mock":false,
   "createdAt":"2026-10-30T08:00:00Z"
 }
 ```
 
-`GET /api/assets`는 목록, `GET /api/assets/{assetId}`는 상세, `GET /api/assets/{assetId}/content`는 비공개 이미지 바이트를 돌려줍니다. 라벨은 `PUT /api/assets/{assetId}/labels`에 `{"labels":["집"]}`로 교체하며, 자산 삭제는 `DELETE /api/assets/{assetId}`입니다. EXIF가 없거나 읽을 수 없는 경우에도 업로드는 성공하고 `locationStatus`는 `unavailable`이 됩니다. GPS 좌표와 파일 저장 키는 일반 응답에 포함하지 않습니다.
+`GET /api/assets`는 목록, `GET /api/assets/{assetId}`는 상세, `GET /api/assets/{assetId}/content`는 비공개 이미지 바이트를 돌려줍니다. 라벨은 `PUT /api/assets/{assetId}/labels`에 `{"labels":["집"]}`로 교체하며, 자산 삭제는 `DELETE /api/assets/{assetId}`입니다. 수정 자산은 `assetRole=edited`, `parentAssetId`에 원본 자산 ID를 표시합니다. EXIF가 없거나 읽을 수 없는 경우에도 업로드는 성공하고 `locationStatus`는 `unavailable`이 됩니다. GPS 좌표와 파일 저장 키는 일반 응답에 포함하지 않습니다.
 
 현재 구현은 로컬 개발용 저장 방식이며 사용자 계정·소유권 분리와 클라우드 저장소가 없습니다. 그러므로 이 계약을 다중 사용자 프로덕션 API로 간주하지 않습니다. 자산 삭제 뒤 분석 기록을 처리하는 규칙은 후속 설계 대상입니다.
 
@@ -99,6 +102,46 @@ HTTP 200. 상태는 queued/processing/completed/failed. Spring은 ID·상태를 
 ```
 
 존재하지 않는 자산은 404입니다. 이 API는 사진 한 장의 개별 실행 기록만 제공하며 묶음·누적 결과를 계산하지 않습니다.
+
+## 보호 편집 API 초안
+
+현재 API는 `EDITING_PROVIDER=stub` 모의 드라이버만 제공합니다. 편집 요청은 이미 완료된 단독 분석과 해당 결과에 실제로 존재하는 단서 ID를 받아 동기식으로 처리합니다.
+
+```http
+POST /api/edits
+Idempotency-Key: <UUID>
+Content-Type: application/json
+```
+
+```json
+{
+  "inspectionId":"33333333-3333-4333-8333-333333333333",
+  "cueIds":["stub-clue-1"],
+  "preservePrompt":"사진 분위기와 음식은 그대로 유지해 주세요."
+}
+```
+
+응답에는 편집 작업 ID, 원본·수정 자산 ID, 상태, `mock`, `mockNotice`, provider 버전이 포함됩니다. stub은 원본 이미지 바이트를 그대로 복사해 새 자산으로 저장하고 다음 문구를 표시합니다: `모의 편집입니다. 이미지 내용은 수정하지 않았습니다.` 원본 자산은 유지됩니다.
+
+stub은 즉시 처리하므로 성공 시 `201 Created`를 반환합니다. 요청한 단서 ID가 분석 결과에 없으면 400, 분석이 완료되지 않았으면 409입니다.
+
+```json
+{
+  "editId":"55555555-5555-4555-8555-555555555555",
+  "inspectionId":"33333333-3333-4333-8333-333333333333",
+  "sourceAssetId":"11111111-1111-4111-8111-111111111111",
+  "editedAssetId":"66666666-6666-4666-8666-666666666666",
+  "cueIds":["stub-clue-1"],
+  "status":"completed",
+  "mock":true,
+  "mockNotice":"모의 편집입니다. 이미지 내용은 수정하지 않았습니다.",
+  "providerVersion":"stub-copy-v1",
+  "createdAt":"2026-10-30T08:00:00Z",
+  "updatedAt":"2026-10-30T08:00:00Z"
+}
+```
+
+`GET /api/edits/{editId}`에서 같은 작업 결과를 다시 조회할 수 있습니다. 같은 idempotency key와 같은 입력은 기존 작업을 반환하고, 다른 입력은 409입니다. 실제 이미지 생성, GPT 연결, 재검사, 수정본 EXIF/GPS 제거 정책은 이 모의 구현에 포함하지 않습니다. 모의 수정본에는 원본과 같은 이미지 바이트가 있을 수 있으므로 보호된 결과로 사용하면 안 됩니다.
 
 ## 오류
 

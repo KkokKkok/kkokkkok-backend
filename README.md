@@ -27,9 +27,12 @@ $env:NODE_ANALYSIS_API_KEY = 'Node와-합의한-비밀키'
 - `POST /api/inspections`: 갤러리에 보관된 사진의 `assetId`를 받아 단독 분석 시작
 - `GET /api/inspections/{id}`: 진행 상태·bbox·위험 요소·반복 노출 결과 조회
 - `GET /api/inspections?assetId={id}`: 사진 한 장의 단독 분석 이력 조회
+- `POST /api/edits`, `GET /api/edits/{editId}`: 분석 단서 선택과 모의 보호 편집 결과 조회
 - `GET /actuator/health`: Spring 서버 상태 (Node 가용성을 뜻하지 않음)
 
 분석 시작 요청은 `{"assetId":"..."}` JSON과 `Idempotency-Key` 헤더를 사용합니다. 기본 stub은 첫 응답에서 `queued`, 조회 시 `completed`와 합성 단서를 반환합니다. 이 결과는 실제 사진 분석이 아니며 `mock: true`로 표시합니다.
+
+보호 편집은 현재 `EDITING_PROVIDER=stub`만 지원합니다. 선택한 단서와 보존 요청을 편집 드라이버 경계로 전달하지만, stub은 이미지 내용을 바꾸지 않고 원본의 복사본을 별도 수정 자산으로 저장합니다. 이 결과도 `mock: true`로 표시하며 실제 보호 편집 기능이나 GPT 연결로 간주하지 않습니다.
 
 [요청·응답·오류·Node 구현 요구사항](docs/inspection-api.md)을 참고하세요.
 

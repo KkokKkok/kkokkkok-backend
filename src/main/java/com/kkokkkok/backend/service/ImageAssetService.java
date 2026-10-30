@@ -41,7 +41,8 @@ public class ImageAssetService {
         String key = storage.save(id, bytes, contentType);
         try {
             return AssetResponse.from(repository.save(new ImageAsset(id, contentType, bytes.length, key,
-                    metadata.latitude(), metadata.longitude(), metadata.capturedAt(), metadata.locationStatus(), safeLabels)));
+                    metadata.latitude(), metadata.longitude(), metadata.capturedAt(), metadata.locationStatus(),
+                    safeLabels, "original", null, false)));
         } catch (RuntimeException e) {
             storage.delete(key);
             throw e;
@@ -70,6 +71,25 @@ public class ImageAssetService {
         ImageAsset asset = find(id);
         asset.replaceLabels(normalizeLabels(labels));
         return AssetResponse.from(asset);
+    }
+
+    @Transactional
+    public AssetResponse storeEditedVersion(UUID sourceAssetId, byte[] bytes, String contentType, boolean mock) {
+        if (bytes == null || bytes.length == 0) throw new ApiFailure(502, "EDIT_OUTPUT_EMPTY", "수정 결과 이미지가 비어 있습니다.");
+        if (bytes.length > MAX_BYTES) throw new ApiFailure(413, "EDIT_OUTPUT_TOO_LARGE", "수정 결과 이미지는 10MB 이하여야 합니다.");
+        ImageAsset source = find(sourceAssetId);
+        if (!imageType(bytes).equals(contentType)) throw new ApiFailure(502, "INVALID_EDIT_OUTPUT", "수정 결과 이미지 형식이 올바르지 않습니다.");
+        var metadata = metadataExtractor.extract(bytes);
+        UUID id = UUID.randomUUID();
+        String key = storage.save(id, bytes, contentType);
+        try {
+            return AssetResponse.from(repository.save(new ImageAsset(id, contentType, bytes.length, key,
+                    metadata.latitude(), metadata.longitude(), metadata.capturedAt(), metadata.locationStatus(),
+                    source.getLabels(), "edited", sourceAssetId, mock)));
+        } catch (RuntimeException e) {
+            storage.delete(key);
+            throw e;
+        }
     }
 
     @Transactional
