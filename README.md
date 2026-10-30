@@ -48,6 +48,8 @@ $env:NODE_ANALYSIS_API_KEY = 'Node와-합의한-비밀키'
 
 보호 편집은 현재 `EDITING_PROVIDER=stub`만 지원합니다. 선택한 단서와 보존 요청을 편집 드라이버 경계로 전달하지만, stub은 이미지 내용을 바꾸지 않고 원본의 복사본을 별도 수정 자산으로 저장합니다. 이 결과도 `mock: true`로 표시하며 실제 보호 편집 기능이나 GPT 연결로 간주하지 않습니다.
 
+편집 모델의 시각 품질은 분석 파이프라인과 별도로 확인할 수 있습니다. 실제 사진과 수동 지정 영역으로 실행하는 로컬 도구는 [보호 편집 품질 테스트 안내](tools/protection_edit_eval/README.md)를 참고하세요.
+
 [요청·응답·오류·Node 구현 요구사항](docs/inspection-api.md)을 참고하세요.
 [프론트 연동용 OpenAPI 초안](docs/openapi.yaml)도 함께 제공합니다. 현재 코드 범위의 초안이며 최종 운영 계약은 아닙니다.
 
