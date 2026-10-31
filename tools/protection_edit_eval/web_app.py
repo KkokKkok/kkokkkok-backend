@@ -145,6 +145,7 @@ def run_mask_generation(session_id: str) -> None:
     directory = session_dir(session_id)
     manifest_path = directory / "session.json"
     manifest = read_manifest(manifest_path)
+    started = time.monotonic()
     manifest["status"] = "masking"
     manifest["message"] = "수정 위치를 찾고 mask를 만드는 중"
     write_manifest(directory, manifest)
@@ -174,11 +175,16 @@ def run_mask_generation(session_id: str) -> None:
             "maskPreviewFile": str(preview_path.relative_to(directory)),
             "maskConfidence": plan.get("confidence"),
             "maskModel": MASK_MODEL,
+            "maskElapsedSeconds": round(time.monotonic() - started, 1),
         })
         write_manifest(directory, manifest)
     except Exception as error:  # Keep worker failures visible in the local page.
         manifest = read_manifest(manifest_path)
-        manifest.update({"status": "failed", "message": str(error)[:500]})
+        manifest.update({
+            "status": "failed",
+            "message": str(error)[:500],
+            "maskElapsedSeconds": round(time.monotonic() - started, 1),
+        })
         write_manifest(directory, manifest)
 
 

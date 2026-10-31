@@ -83,7 +83,10 @@ function renderActive(session) {
   titleCopy.append(step, heading);
   const status = document.createElement("span");
   status.className = `pill${session.status === "failed" ? " failed" : ""}`;
-  status.textContent = session.status === "ready" ? `준비 완료 · 신뢰도 ${Math.round((session.maskConfidence || 0) * 100)}%` : session.message || session.status;
+  const maskTime = Number.isFinite(session.maskElapsedSeconds) ? `mask ${session.maskElapsedSeconds}초` : "mask 시간 기록 전";
+  status.textContent = session.status === "ready"
+    ? `${maskTime} · 신뢰도 ${Math.round((session.maskConfidence || 0) * 100)}%`
+    : session.message || session.status;
   title.append(titleCopy, status);
   activeElement.append(title);
 
@@ -219,7 +222,8 @@ function renderHistory(sessions) {
     copy.append(heading, date);
     const badge = document.createElement("span");
     badge.className = `pill${session.status === "failed" ? " failed" : ""}`;
-    badge.textContent = `${session.status === "ready" ? "mask 준비" : session.status} · ${session.edits?.length || 0}회 편집`;
+    const maskTime = Number.isFinite(session.maskElapsedSeconds) ? `mask ${session.maskElapsedSeconds}초` : "mask 대기 중";
+    badge.textContent = `${session.status === "ready" ? "준비 완료" : session.status} · ${maskTime} · ${session.edits?.length || 0}회 편집`;
     title.append(copy, badge);
     card.append(title);
     const select = document.createElement("button");
