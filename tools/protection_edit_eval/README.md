@@ -30,10 +30,12 @@ tools/protection_edit_eval/.venv/bin/python tools/protection_edit_eval/evaluate.
   --image "$HOME/Pictures/test-photo.jpg" \
   --mask-file "$HOME/Downloads/kkokkkok-edit-eval/masks/<실행 폴더>/mask.png" \
   --target "사진 속 컵 앞면에 인쇄된 스타벅스 로고" \
-  --preserve "유리컵의 형태와 반사, 커피, 따뜻한 카페 분위기와 전체 구도"
+  --preserve "유리컵의 형태와 반사, 커피, 따뜻한 카페 분위기와 전체 구도" \
+  --crop-context-scale 3
 ```
 
 기존 분석에서 좌표 또는 mask가 제공되면 `mask_from_text.py` 단계는 건너뛰고, 외부 mask는 `--mask-file`로 전달할 수 있습니다.
+`--crop-context-scale 3`을 주면 mask 주변 사진만 편집 모델에 보낸 뒤, 반환 이미지에서 mask 부분만 원본에 합성합니다. 원본 해상도와 mask 밖 픽셀을 유지하면서 편집 대상에 더 많은 해상도를 쓰는 시험 옵션입니다. raw crop 결과는 `edited-crop.png`, 전체 사진 결과는 `edited.png`에 저장합니다.
 
 ## 좌표를 직접 지정해 mask 확인
 
@@ -70,7 +72,21 @@ tools/protection_edit_eval/.venv/bin/python tools/protection_edit_eval/evaluate.
 
 기본 모델은 편집 정밀도 비교를 위한 시작값 `gpt-image-2.5-sunburst`, 품질은 `high`입니다. 모델과 품질은 옵션으로 바꿔 같은 사진·영역·보존 조건에서 비교할 수 있습니다. 이 기본값은 제품의 최종 모델 결정이 아닙니다.
 
-실행마다 결과 폴더가 만들어지며 `source.png`, `mask.png`, `mask-preview.png`, `edited.png`, `run.json`, `review.md`를 담습니다. `review.md`에 단서 제거, 편집 경계의 자연스러움, 사진 분위기, 보존 대상, 비대상 영역을 각각 1~5점으로 기록합니다. 여러 장면에서 같은 기준을 반복 적용하고, 같은 장면에서 보존 요청이나 품질 설정을 바꿔 비교합니다.
+실행마다 결과 폴더가 만들어지며 `source.png`, `mask.png`, `mask-preview.png`, `edited.png`, `run.json`, `review.md`를 담습니다. crop 모드에서는 `edit-source.png`, `edit-mask.png`, `edited-crop.png`도 함께 저장합니다. `review.md`에 단서 제거, 편집 경계의 자연스러움, 사진 분위기, 보존 대상, 비대상 영역을 각각 1~5점으로 기록합니다. 여러 장면에서 같은 기준을 반복 적용하고, 같은 장면에서 보존 요청이나 품질 설정을 바꿔 비교합니다.
+
+## 기존 편집 결과를 원본과 합성
+
+이전의 전체 사진 편집 결과를 추가 API 요청 없이 원본 및 mask와 합성해 볼 수도 있습니다.
+
+```bash
+tools/protection_edit_eval/.venv/bin/python tools/protection_edit_eval/preserve_outside.py \
+  --source "$HOME/Downloads/kkokkkok-edit-eval/<실행 폴더>/source.png" \
+  --edited "$HOME/Downloads/kkokkkok-edit-eval/<실행 폴더>/edited.png" \
+  --mask "$HOME/Downloads/kkokkkok-edit-eval/<실행 폴더>/mask.png" \
+  --output "$HOME/Downloads/kkokkkok-edit-eval/<실행 폴더>/preserved.png"
+```
+
+편집 결과 크기가 달라도 같은 가로·세로 비율이면 원본 크기에 맞춰 합성합니다. `--expand-px`는 부드러운 경계를 위해 실제 변경 범위를 넓히므로, 비대상 영역까지 바뀔 수 있습니다. 눈에 띄는 경계가 생기면 crop 모드와 결과를 비교하세요.
 
 실행 등급은 1점(사용하기 어려울 정도로 부자연스럽거나 보존 대상 손상), 3점(사용 가능하지만 차이가 눈에 띔), 5점(자연스럽고 보존 조건을 충족)으로 통일합니다. 이는 비교를 위한 기록이며 자동 통과 판정이나 제품 출시 기준은 아닙니다.
 
