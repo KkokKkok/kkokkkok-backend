@@ -11,6 +11,22 @@ python3 -m venv tools/protection_edit_eval/.venv
 tools/protection_edit_eval/.venv/bin/pip install -r tools/protection_edit_eval/requirements.txt
 ```
 
+## 브라우저에서 여러 모델 비교
+
+같은 사진과 같은 mask를 두고 편집 모델만 바꿔 비교하는 로컬 페이지도 제공합니다. API 키는 기존 저장소 루트 `.env`의 `OPENAI_API_KEY`를 도구가 읽습니다.
+
+```bash
+tools/protection_edit_eval/.venv/bin/python tools/protection_edit_eval/web_app.py
+```
+
+출력된 `http://127.0.0.1:8765` 주소를 브라우저에서 엽니다. 사진과 수정 대상을 입력한 뒤 **수정 영역 찾기**를 누르면 mask가 생성됩니다. 붉은 mask 미리보기를 확인하고, 유지할 내용·편집 모델·품질·문맥 크기를 선택해 편집을 실행합니다. 한 mask에서 모델을 바꿔 여러 결과를 만들 수 있고, 저장된 이전 실행은 페이지를 새로 열어도 다시 볼 수 있습니다.
+
+기본 비교 목록은 `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare`, `gpt-image-2`, `gpt-image-1.5`, `gpt-image-1-mini`입니다. API 지원 여부는 계정과 시점에 따라 다를 수 있으며, 현재 지원 모델은 [Images Edit API 문서](https://developers.openai.com/api/reference/resources/images/methods/edit)에서 확인합니다. `gpt-image-2.5-sunburst`는 정밀 편집, `gpt-image-2.5-flare`는 빠른 편집의 비교 시작값입니다.
+
+서버는 기본적으로 loopback 주소 `127.0.0.1`에만 바인딩하며 외부 접속을 열지 않습니다. 사진, mask와 실행 기록은 `~/Downloads/kkokkkok-edit-eval/web-runs/`에 저장됩니다. 사진과 요청은 선택한 모델 API로 전송되고 사용량 비용이 생길 수 있습니다. 모델 테스트를 다시 실행하기 전에 같은 mask의 붉은 미리보기를 확인하세요.
+
+각 실행 기록에는 수정 대상, 보존 요청, mask 신뢰도, 선택한 모델과 품질, mask 생성 시간과 각 편집 요청의 수행 시간, 원본·mask 미리보기·수정 결과가 포함됩니다. mask 시간과 편집 시간은 따로 표시해 같은 mask로 여러 모델을 비교할 때 구분할 수 있습니다. 페이지는 자동 품질 점수를 매기지 않으므로 자연스러움과 사진 분위기는 결과를 나란히 보고 직접 기록합니다.
+
 ## 텍스트 단서에서 AI mask 만들기
 
 분석 단계가 `"사진 속 컵 앞면의 스타벅스 로고"` 같은 텍스트만 넘긴다고 가정할 때 사용합니다. 시각 추론을 지원하는 `gpt-6.1-terra`가 사진에서 단서를 찾고 윤곽 다각형을 반환합니다. 도구가 그 윤곽을 PNG mask로 만들고 붉은 미리보기를 저장합니다.

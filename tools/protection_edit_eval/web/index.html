@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>꼭꼭 보호 편집 테스트</title>
+    <link rel="stylesheet" href="/style.css">
+    <script defer src="/app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">LOCAL IMAGE EDIT EVALUATION</p>
+        <h1>보호 편집 테스트</h1>
+      </div>
+      <span class="local-badge">내 컴퓨터에서만 실행</span>
+    </header>
+
+    <main>
+      <section class="panel setup-panel">
+        <div class="section-heading">
+          <div>
+            <p class="step">1단계</p>
+            <h2>사진과 수정 대상을 정해요</h2>
+          </div>
+          <p class="help">사진과 요청은 OpenAI API로 전송됩니다. 입력과 결과는 저장소가 아닌 Downloads에 저장됩니다.</p>
+        </div>
+
+        <form id="mask-form">
+          <label class="field">
+            <span>사진</span>
+            <input name="image" type="file" accept="image/jpeg,image/png,image/webp" required>
+            <small>JPG, PNG, WebP · 최대 50MB</small>
+          </label>
+          <label class="field">
+            <span>수정할 대상</span>
+            <textarea name="target" rows="3" maxlength="1500" required placeholder="예: 사진 위쪽 간판의 흰색 상호 글자를 모두 지워줘"></textarea>
+            <small>AI가 사진에서 이 대상을 찾아 수정 영역을 만듭니다.</small>
+          </label>
+          <div class="actions">
+            <button id="mask-button" class="button primary" type="submit">수정 영역 찾기</button>
+            <span id="mask-status" class="status" role="status"></span>
+          </div>
+        </form>
+      </section>
+
+      <section id="active-session" class="panel hidden" aria-live="polite"></section>
+
+      <section class="panel history-panel">
+        <div class="section-heading history-heading">
+          <div>
+            <p class="step">실행 기록</p>
+            <h2>모델별 결과 비교</h2>
+          </div>
+          <button id="refresh-button" class="button secondary" type="button">새로고침</button>
+        </div>
+        <p class="help history-help">같은 mask에 여러 편집 모델을 실행해 결과를 나란히 비교할 수 있습니다.</p>
+        <div id="history" class="history-list"></div>
+        <p id="empty-history" class="empty-state">아직 실행 기록이 없습니다.</p>
+      </section>
+    </main>
+
+    <footer>
+      <span>실제 사진과 API 키는 Git에 포함되지 않습니다.</span>
+      <span>Ctrl+C로 로컬 서버를 종료할 수 있습니다.</span>
+    </footer>
+  </body>
+</html>
