@@ -32,7 +32,8 @@ function renderEdit(session, edit) {
   const section = element("section", "result-edit");
   const title = element("div", "trial-meta");
   title.append(element("strong", "", edit.model || "편집 실행"));
-  title.append(element("span", "", `${edit.status || "기록"} · 품질 ${edit.quality || "-"} · 주변 문맥 ${edit.cropContextScale ?? "-"}배 · ${edit.elapsedSeconds ?? "-"}초`));
+  const context = Number(edit.cropContextScale) === 0 ? "전체 사진" : `주변 문맥 ${edit.cropContextScale ?? "-"}배`;
+  title.append(element("span", "", `${edit.status || "기록"} · 품질 ${edit.quality || "-"} · ${context} · ${edit.elapsedSeconds ?? "-"}초`));
   section.append(title);
   const prompt = element("details", "prompt-details");
   prompt.append(element("summary", "", "실제 전송한 편집 프롬프트 보기"));
@@ -57,6 +58,13 @@ function renderSession(session) {
   heading.append(info);
   heading.append(element("span", `pill${session.status === "failed" ? " failed" : ""}`, session.status || "기록"));
   card.append(heading);
+  if (session.bboxRegions?.length) {
+    const coordinates = element("ul", "saved-bbox-list");
+    session.bboxRegions.forEach((region, index) => {
+      coordinates.append(element("li", "", `${index + 1}. ${region.target}: [${region.bbox.map((value) => Number(value).toFixed(3)).join(", ")}]`));
+    });
+    card.append(element("p", "help", "사용자 지정 bbox · EXIF 보정 사진 기준 [왼쪽 x, 위쪽 y, 오른쪽 x, 아래쪽 y], 0~1 정규화"), coordinates);
+  }
   if (session.message && session.status === "failed") card.append(element("p", "status error", session.message));
   if (!session.edits?.length) card.append(element("p", "empty-state", "아직 편집 실행 기록이 없습니다."));
   for (const edit of session.edits || []) card.append(renderEdit(session, edit));

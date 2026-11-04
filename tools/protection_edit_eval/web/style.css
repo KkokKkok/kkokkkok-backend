@@ -141,3 +141,28 @@ footer { display: flex; justify-content: space-between; gap: 14px; padding: 0 0 
   .top-nav { align-items: flex-end; flex-direction: column; }
   footer { display: grid; }
 }
+
+.mode-picker { display: flex; flex-wrap: wrap; gap: 10px 20px; margin: 0; padding: 14px; border: 1px solid var(--line); border-radius: 10px; }
+.mode-picker legend { padding: 0 5px; font-size: 14px; font-weight: 700; }
+.mode-picker label { display: flex; align-items: center; gap: 7px; color: var(--ink); font-size: 14px; }
+.mode-picker input { width: auto; accent-color: var(--green); }
+.manual-bbox-panel { display: grid; gap: 12px; }
+.manual-bbox-panel h3 { margin: 0 0 5px; font-size: 16px; }
+.canvas-wrap { position: relative; display: grid; min-height: 120px; place-items: center; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #eef2ef; }
+.canvas-placeholder { margin: 0; padding: 24px; color: var(--muted); text-align: center; }
+#bbox-canvas { display: none; width: auto; max-width: 100%; max-height: 68vh; height: auto; cursor: crosshair; touch-action: none; }
+#bbox-canvas.ready { display: block; }
+.bbox-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.bbox-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.bbox-item { display: grid; grid-template-columns: 28px minmax(140px, 1fr) minmax(210px, auto) auto; gap: 10px; align-items: center; }
+.bbox-item input { min-width: 0; padding: 9px 10px; }
+.bbox-number { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 50%; background: #ff4a4a; color: white; font-size: 12px; font-weight: 700; }
+.bbox-item code { color: var(--muted); font-size: 12px; }
+.bbox-remove { min-height: 34px; padding: 6px 10px; font-size: 12px; }
+.saved-bbox-list { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font: 12px/1.6 ui-monospace, monospace; }
+
+@media (max-width: 760px) {
+  .bbox-item { grid-template-columns: 28px minmax(0, 1fr) auto; }
+  .bbox-item code { grid-column: 2 / -1; overflow-wrap: anywhere; }
+  .bbox-remove { grid-column: 3; grid-row: 1; }
+}
