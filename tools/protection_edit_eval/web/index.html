@@ -24,7 +24,7 @@
         <div class="section-heading">
           <div>
             <p class="step">1단계</p>
-            <h2>사진과 수정 대상을 정해요</h2>
+            <h2>사진과 분석 결과를 준비해요</h2>
           </div>
           <p class="help">텍스트 방식은 영역 찾기에 사진을 사용하고, 편집 실행 시 사진과 mask를 선택한 모델로 보냅니다. 입력과 결과는 저장소가 아닌 Downloads에 저장됩니다.</p>
         </div>
@@ -32,8 +32,8 @@
         <form id="mask-form">
           <fieldset class="field mode-picker">
             <legend>수정 영역 지정 방식</legend>
-            <label><input type="radio" name="mode" value="text" checked> 설명으로 AI가 찾기</label>
-            <label><input type="radio" name="mode" value="manual-bbox"> 사진 위에서 직접 지정</label>
+            <label><input type="radio" name="mode" value="text"> 설명으로 AI가 찾기</label>
+            <label><input type="radio" name="mode" value="manual-bbox" checked> 모의 분석 결과 입력</label>
           </fieldset>
           <label class="field">
             <span>사진</span>
@@ -48,15 +48,16 @@
           </label>
           <section id="manual-bbox-panel" class="manual-bbox-panel hidden" aria-label="사진에서 수정 영역 지정">
             <div>
-              <h3>사진에서 수정할 곳을 드래그하세요</h3>
-              <p class="help">상자를 여러 개 그릴 수 있어요. 좌표는 화면 크기와 관계없이 EXIF 방향을 보정한 사진 기준으로 저장합니다. 각 상자에 무엇을 지울지 적으면 한 번의 편집 요청에 함께 전달됩니다.</p>
+              <h3>모의 분석 결과 단서를 등록하세요</h3>
+              <p class="help">분석 결과에 들어올 설명·위험도·근거를 입력하고, 사진에서 위치를 드래그해 주세요. 여기 입력한 값은 테스트용이며 확정된 API 형식이 아닙니다.</p>
+              <p class="help">각 영역을 편집 대상으로 선택하면 선택한 곳만 한 번의 편집 요청으로 보냅니다. 좌표는 EXIF 방향 보정 사진 기준으로 저장합니다.</p>
             </div>
             <div id="canvas-wrap" class="canvas-wrap">
               <canvas id="bbox-canvas" aria-label="사진 위에 드래그해 수정 영역을 지정하세요"></canvas>
               <p id="canvas-placeholder" class="canvas-placeholder">사진을 선택하면 여기에 표시됩니다.</p>
             </div>
             <div class="bbox-list-heading">
-              <strong>수정 영역 <span id="bbox-count">0</span>/20</strong>
+              <strong>분석 단서 <span id="bbox-count">0</span>/20</strong>
               <button id="clear-bboxes" class="button secondary" type="button">모두 지우기</button>
             </div>
             <ol id="bbox-list" class="bbox-list"></ol>

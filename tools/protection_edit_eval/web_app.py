@@ -138,16 +138,38 @@ def parse_bbox_regions(raw: str) -> list[dict]:
         if not isinstance(item, dict) or not isinstance(item.get("bbox"), list) or len(item["bbox"]) != 4:
             raise ValueError("각 수정 영역은 bbox 좌표 4개가 필요합니다.")
         target = item.get("target")
+        main = item.get("mainDescription", target)
+        sub = item.get("subDescription", "")
+        risk = item.get("riskLevel", "")
+        rationale = item.get("riskRationale", "")
+        selected = item.get("selected", True)
         bbox = item["bbox"]
-        if not isinstance(target, str) or not target.strip() or len(target.strip()) > 200:
-            raise ValueError("각 수정 영역의 설명을 1~200자로 입력해 주세요.")
+        if not isinstance(main, str) or not main.strip() or len(main.strip()) > 200:
+            raise ValueError("각 단서의 주요 설명을 1~200자로 입력해 주세요.")
+        if any(not isinstance(value, str) or len(value) > limit for value, limit in ((sub, 500), (risk, 80), (rationale, 500))):
+            raise ValueError("부가 설명·위험도·산정 근거의 길이를 확인해 주세요.")
+        if "mainDescription" in item and risk not in {"주의", "높음"}:
+            raise ValueError("모의 분석 단서의 위험도는 주의 또는 높음으로 선택해 주세요.")
+        if risk and risk not in {"주의", "높음"}:
+            raise ValueError("위험도는 주의 또는 높음으로 입력해 주세요.")
+        if not isinstance(selected, bool):
+            raise ValueError("편집할 단서 선택 여부가 올바르지 않습니다.")
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in bbox):
             raise ValueError("bbox 좌표는 숫자로 입력해 주세요.")
         x1, y1, x2, y2 = [float(value) for value in bbox]
         if (not all(math.isfinite(value) for value in (x1, y1, x2, y2))
                 or not 0 <= x1 < x2 <= 1 or not 0 <= y1 < y2 <= 1):
             raise ValueError("bbox는 EXIF 보정 사진 기준 0~1 범위의 왼쪽 위·오른쪽 아래 좌표여야 합니다.")
-        regions.append({"target": target.strip(), "bbox": [x1, y1, x2, y2]})
+        regions.append({
+            "id": str(item.get("id", ""))[:80],
+            "target": main.strip(),
+            "mainDescription": main.strip(),
+            "subDescription": sub.strip(),
+            "riskLevel": risk.strip(),
+            "riskRationale": rationale.strip(),
+            "selected": selected,
+            "bbox": [x1, y1, x2, y2],
+        })
     return regions
 
 
@@ -209,9 +231,12 @@ def run_mask_generation(session_id: str) -> None:
             mask_path = output_dir / "mask.png"
             preview_path = output_dir / "mask-preview.png"
             width, height, _ = prepare_image(directory / manifest["inputFile"], source_path)
-            create_bbox_union_mask(width, height, manifest["bboxRegions"], mask_path)
+            selected_regions = [region for region in manifest["bboxRegions"] if region.get("selected", True)]
+            if not selected_regions:
+                raise ValueError("편집할 단서를 하나 이상 선택해 주세요.")
+            create_bbox_union_mask(width, height, selected_regions, mask_path)
             create_preview(source_path, mask_path, preview_path)
-            plan = {"confidence": None, "targets": manifest["bboxRegions"]}
+            plan = {"confidence": None, "targets": selected_regions}
         else:
             command = [
                 sys.executable,
@@ -462,7 +487,12 @@ class EditEvalHandler(BaseHTTPRequestHandler):
         bbox_regions = []
         if mode == "manual-bbox":
             bbox_regions = parse_bbox_regions(fields.get("regions", ""))
-            targets = [region["target"] for region in bbox_regions]
+            targets = [
+                ": ".join(value for value in (region["mainDescription"], region["subDescription"]) if value)
+                for region in bbox_regions if region["selected"]
+            ]
+            if not targets:
+                raise ValueError("편집할 단서를 하나 이상 선택해 주세요.")
             target = " / ".join(targets)
         else:
             raw_target = fields.get("target", "")
@@ -490,6 +520,8 @@ class EditEvalHandler(BaseHTTPRequestHandler):
             "status": "queued",
             "message": "수정 영역 mask를 준비하는 중",
             "mode": mode,
+            "analysisMode": "mock" if mode == "manual-bbox" else None,
+            "mockNotice": "모의 분석 결과입니다. 실제 분석 결과나 확정된 API 형식이 아닙니다." if mode == "manual-bbox" else None,
             "target": target,
             "targets": targets,
             "bboxRegions": bbox_regions,

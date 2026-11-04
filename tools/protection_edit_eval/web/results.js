@@ -58,12 +58,22 @@ function renderSession(session) {
   heading.append(info);
   heading.append(element("span", `pill${session.status === "failed" ? " failed" : ""}`, session.status || "기록"));
   card.append(heading);
+  if (session.analysisMode === "mock") {
+    card.append(element("p", "mock-notice", session.mockNotice || "모의 분석 결과이며 확정된 API 형식이 아닙니다."));
+  }
   if (session.bboxRegions?.length) {
-    const coordinates = element("ul", "saved-bbox-list");
+    const cueList = element("div", "saved-cue-list");
     session.bboxRegions.forEach((region, index) => {
-      coordinates.append(element("li", "", `${index + 1}. ${region.target}: [${region.bbox.map((value) => Number(value).toFixed(3)).join(", ")}]`));
+      const cue = element("article", `mock-result-cue${region.selected ? " selected" : ""}`);
+      cue.append(element("strong", "", `${index + 1}. ${region.mainDescription || region.target}`));
+      cue.append(element("span", "cue-selection-state", region.selected ? "이번 편집에 포함" : "이번 편집에서 제외"));
+      for (const [label, value] of [["부가 설명", region.subDescription], ["위험도", region.riskLevel], ["산정 근거", region.riskRationale]]) {
+        if (value) cue.append(element("p", "", `${label}: ${value}`));
+      }
+      cue.append(element("code", "saved-bbox-list", `bbox [${region.bbox.map((value) => Number(value).toFixed(3)).join(", ")}]`));
+      cueList.append(cue);
     });
-    card.append(element("p", "help", "사용자 지정 bbox · EXIF 보정 사진 기준 [왼쪽 x, 위쪽 y, 오른쪽 x, 아래쪽 y], 0~1 정규화"), coordinates);
+    card.append(element("p", "help", "사용자 지정 bbox · EXIF 보정 사진 기준 [왼쪽 x, 위쪽 y, 오른쪽 x, 아래쪽 y], 0~1 정규화"), cueList);
   }
   if (session.message && session.status === "failed") card.append(element("p", "status error", session.message));
   if (!session.edits?.length) card.append(element("p", "empty-state", "아직 편집 실행 기록이 없습니다."));

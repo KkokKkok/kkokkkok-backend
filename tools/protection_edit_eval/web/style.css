@@ -97,6 +97,9 @@ select { min-height: 41px; padding: 9px 11px; }
 .session-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .session-title .help { margin-top: 8px; }
 .session-target { margin: 16px 0 20px; padding: 12px 14px; border-radius: 8px; background: #f5f8f6; font-size: 14px; line-height: 1.5; }
+.mask-preview-details { margin: 16px 0; }
+.mask-preview-details summary { width: fit-content; color: var(--green); font-size: 13px; font-weight: 700; cursor: pointer; }
+.mask-preview-details .image-card { max-width: 560px; }
 .image-pair, .edit-results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .image-card { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #fafcfb; }
 .image-card h3 { margin: 0; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
@@ -154,15 +157,30 @@ footer { display: flex; justify-content: space-between; gap: 14px; padding: 0 0 
 #bbox-canvas.ready { display: block; }
 .bbox-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .bbox-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.bbox-item { display: grid; grid-template-columns: 28px minmax(140px, 1fr) minmax(210px, auto) auto; gap: 10px; align-items: center; }
-.bbox-item input { min-width: 0; padding: 9px 10px; }
+.bbox-item { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.bbox-item-header { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(210px, auto) auto; gap: 10px; align-items: center; }
+.bbox-identity { display: flex; align-items: center; gap: 12px; }
+.bbox-selection { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 650; }
+.bbox-selection input { width: 18px; height: 18px; }
+.bbox-item input, .bbox-item textarea { min-width: 0; padding: 9px 10px; }
 .bbox-number { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 50%; background: #ff4a4a; color: white; font-size: 12px; font-weight: 700; }
 .bbox-item code { color: var(--muted); font-size: 12px; }
+.mock-cue-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.mock-cue-fields label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; }
+.mock-cue-fields textarea { min-height: 62px; }
+.mock-notice { padding: 10px 12px; border-radius: 8px; background: #fff6e8; color: #80530c; font-size: 13px; }
+.mock-result-cues { display: grid; gap: 8px; margin-top: 16px; }
+.mock-result-cues h3 { margin: 0 0 2px; font-size: 16px; }
+.mock-result-cue { padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
+.mock-result-cue.selected { border-color: #e6a2a2; background: #fffafa; }
+.mock-result-cue strong { display: inline-block; margin-right: 10px; }
+.mock-result-cue p { margin: 7px 0 0; color: var(--muted); font-size: 13px; }
+.cue-selection-state { color: var(--muted); font-size: 12px; }
 .bbox-remove { min-height: 34px; padding: 6px 10px; font-size: 12px; }
 .saved-bbox-list { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font: 12px/1.6 ui-monospace, monospace; }
 
 @media (max-width: 760px) {
-  .bbox-item { grid-template-columns: 28px minmax(0, 1fr) auto; }
-  .bbox-item code { grid-column: 2 / -1; overflow-wrap: anywhere; }
-  .bbox-remove { grid-column: 3; grid-row: 1; }
+  .bbox-item-header { grid-template-columns: 1fr auto; }
+  .bbox-item-header code { grid-column: 1 / -1; grid-row: 2; overflow-wrap: anywhere; }
+  .mock-cue-fields { grid-template-columns: 1fr; }
 }
