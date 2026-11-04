@@ -46,7 +46,7 @@ $env:NODE_ANALYSIS_API_KEY = 'Node와-합의한-비밀키'
 
 다량 분석은 최대 20장의 기존 자산을 묶어 단독 분석을 각각 시작합니다. 사진별 EXIF GPS가 없을 때만 각 항목의 `locationFallback`을 적용합니다. 사진 간 비교나 누적 점수 계산은 하지 않으며, 분석 항목 ID와 부분 실패를 묶음 응답에서 따로 확인합니다. API JSON은 [검사 API 문서](docs/inspection-api.md#다량-단독-분석)와 [OpenAPI 초안](docs/openapi.yaml)에 있습니다.
 
-보호 편집은 현재 `EDITING_PROVIDER=stub`만 지원합니다. 선택한 단서와 보존 요청을 편집 드라이버 경계로 전달하지만, stub은 이미지 내용을 바꾸지 않고 원본의 복사본을 별도 수정 자산으로 저장합니다. 이 결과도 `mock: true`로 표시하며 실제 보호 편집 기능이나 GPT 연결로 간주하지 않습니다.
+보호 편집은 `EDITING_PROVIDER=stub`(기본값)과 `EDITING_PROVIDER=openai`를 지원합니다. stub은 원본 복사본을 저장하고 `mock: true`로 표시합니다. OpenAI provider는 선택한 분석 단서의 bbox를 한 mask로 합쳐 한 번의 이미지 편집 요청으로 보냅니다. API 키는 환경 변수 `OPENAI_API_KEY`로 설정하며, 실제 편집은 비용이 발생하고 외부 API에 사진이 전송됩니다. 상세 설정은 `docs/inspection-api.md`와 `.env.example`을 참고하세요.
 
 편집 모델의 시각 품질은 분석 파이프라인과 별도로 확인할 수 있습니다. 실제 사진과 수동 지정 영역으로 실행하는 로컬 도구는 [보호 편집 품질 테스트 안내](tools/protection_edit_eval/README.md)를 참고하세요.
 브라우저에서 편집 모델을 비교하려면 같은 안내의 **브라우저에서 여러 모델 비교** 절을 따라 로컬 테스트 페이지를 실행하면 됩니다.

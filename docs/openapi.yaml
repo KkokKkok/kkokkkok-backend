@@ -260,7 +260,7 @@ paths:
     post:
       tags: [보호 편집]
       summary: 단서 선택 편집 요청
-      description: 개발 stub은 원본 바이트를 복사할 뿐 이미지 내용을 수정하지 않습니다. 실제 보호 편집 결과가 아닙니다.
+      description: 기본 stub은 원본을 복사하며, EDITING_PROVIDER=openai일 때 선택된 단서 bbox들을 합친 mask로 실제 이미지 편집을 요청합니다.
       operationId: createEdit
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -271,7 +271,7 @@ paths:
             schema: { $ref: '#/components/schemas/EditRequest' }
       responses:
         '201':
-          description: 모의 편집 작업 완료
+          description: 편집 작업 완료. 응답의 mock 필드로 모의 결과 여부를 확인합니다.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/EditResult' }
@@ -457,7 +457,10 @@ components:
         mock: { type: boolean }
         pipelineVersion: { type: string }
         riskSummary: { type: object, additionalProperties: true }
-        riskFactors: { type: array, items: { type: object, additionalProperties: true } }
+        riskFactors:
+          type: array
+          description: 단서 bbox는 [x1,y1,x2,y2] 순서, 0~1 정규화, EXIF 방향 보정 이미지 기준입니다.
+          items: { type: object, additionalProperties: true }
     InspectionHistoryItem:
       type: object
       required: [assetId, status, requestedAt, updatedAt]
@@ -491,6 +494,12 @@ components:
           maxItems: 20
           items: { type: string, minLength: 1, maxLength: 100 }
         preservePrompt: { type: [string, 'null'], maxLength: 1000 }
+        editStrength:
+          type: integer
+          minimum: 0
+          maximum: 100
+          default: 50
+          description: 편집 변화 강도. 이미지 출력 품질 설정과 별개입니다.
     EditResult:
       type: object
       required: [editId, inspectionId, sourceAssetId, cueIds, status, mock, createdAt, updatedAt]

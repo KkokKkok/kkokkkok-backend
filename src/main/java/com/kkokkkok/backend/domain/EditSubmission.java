@@ -6,4 +6,5 @@ import java.util.UUID;
 
 /** Provider-neutral edit input selected from a stored single-analysis result. */
 public record EditSubmission(UUID sourceAssetId, byte[] image, String contentType,
-                             List<Map<String, Object>> selectedCues, String preservePrompt) {}
+                             List<Map<String, Object>> selectedCues, String preservePrompt,
+                             int editStrength) {}

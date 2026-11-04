@@ -145,7 +145,7 @@ Content-Type: application/json
 
 ## 보호 편집 API 초안
 
-현재 API는 `EDITING_PROVIDER=stub` 모의 드라이버만 제공합니다. 편집 요청은 이미 완료된 단독 분석과 해당 결과에 실제로 존재하는 단서 ID를 받아 동기식으로 처리합니다.
+보호 편집은 `EDITING_PROVIDER=stub`(기본값) 또는 `EDITING_PROVIDER=openai`를 선택할 수 있습니다. `stub`은 원본 바이트를 복사하고 실제 수정이 아님을 응답에 표시합니다. `openai`는 완료된 단독 분석의 선택 단서 bbox로 mask를 만들고 이미지 편집 API를 한 번 호출합니다. OpenAI 키는 `OPENAI_API_KEY` 환경 변수 또는 저장소 루트의 로컬 `.env`에서만 읽습니다.
 
 ```http
 POST /api/edits
@@ -157,9 +157,16 @@ Content-Type: application/json
 {
   "inspectionId":"33333333-3333-4333-8333-333333333333",
   "cueIds":["stub-clue-1"],
-  "preservePrompt":"사진 분위기와 음식은 그대로 유지해 주세요."
+  "preservePrompt":"사진 분위기와 음식은 그대로 유지해 주세요.",
+  "editStrength":50
 }
 ```
+
+`editStrength`는 0~100 정수이며 생략하면 50(자연스럽게)을 사용합니다. 낮은 값은 적은 변경, 높은 값은 단서를 분명하게 제거하도록 서버 프롬프트에 반영합니다. 이미지 API의 출력 품질(`OPENAI_IMAGE_QUALITY`)과는 별도입니다.
+
+분석 단서의 `bbox`는 `[왼쪽 x, 위쪽 y, 오른쪽 x, 아래쪽 y]` 순서의 0~1 정규화 좌표이며, 원점은 왼쪽 위, x는 오른쪽으로, y는 아래쪽으로 증가합니다. 사진은 EXIF 방향을 보정한 기준으로 좌표를 mask에 옮깁니다. 선택한 시각 단서가 여러 개면 영역들을 하나의 mask로 합쳐 편집 요청 한 번에 전달합니다. GPS/EXIF 전용 단서는 시각 mask에 포함하지 않고, 편집 결과를 PNG로 다시 인코딩해 촬영 메타데이터를 제거합니다.
+
+실제 provider 설정 예시는 `.env.example`을 참고합니다. `EDITING_PROVIDER=openai`와 키가 설정된 경우에만 유료 이미지 편집 요청을 보냅니다. 기본 model은 `gpt-image-2.5-sunburst`, 품질은 `high`입니다. 실제 편집은 JPEG/PNG 입력을 지원하며, 현재 provider는 WebP 디코딩을 지원하지 않습니다.
 
 응답에는 편집 작업 ID, 원본·수정 자산 ID, 상태, `mock`, `mockNotice`, provider 버전이 포함됩니다. stub은 원본 이미지 바이트를 그대로 복사해 새 자산으로 저장하고 다음 문구를 표시합니다: `모의 편집입니다. 이미지 내용은 수정하지 않았습니다.` 원본 자산은 유지됩니다.
 
@@ -183,7 +190,7 @@ stub은 즉시 처리하므로 성공 시 `201 Created`를 반환합니다. 요�
 }
 ```
 
-수정 자산은 동일한 분석 드라이버로 재검사되고, 최초 응답에는 재검사 ID와 마지막으로 확인된 상태가 포함됩니다. 최신 상태·결과는 `GET /api/inspections/{verificationInspectionId}`에서 조회합니다. `GET /api/edits/{editId}`는 편집 기록을 다시 반환합니다. 같은 idempotency key와 같은 입력은 기존 작업을 반환하고, 다른 입력은 409입니다. 실제 이미지 생성, GPT 연결, 수정본 EXIF/GPS 제거 정책은 이 모의 구현에 포함하지 않습니다. 모의 수정본에는 원본과 같은 이미지 바이트가 있을 수 있으므로 보호된 결과로 사용하면 안 됩니다.
+수정 자산은 동일한 분석 드라이버로 재검사되고, 최초 응답에는 재검사 ID와 마지막으로 확인된 상태가 포함됩니다. 최신 상태·결과는 `GET /api/inspections/{verificationInspectionId}`에서 조회합니다. `GET /api/edits/{editId}`는 편집 기록을 다시 반환합니다. 같은 idempotency key와 같은 입력은 기존 작업을 반환하고, 다른 입력은 409입니다. 모의 수정본에는 원본과 같은 이미지 바이트가 있을 수 있으므로 `mock: true`인 결과를 보호된 사진으로 사용하면 안 됩니다.
 
 ## 오류
 
