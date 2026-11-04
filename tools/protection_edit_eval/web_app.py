@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import math
 import mimetypes
 import re
 import subprocess
@@ -21,7 +22,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from PIL import Image
+from PIL import Image, ImageDraw
+
+from evaluate import MAX_MASK_BYTES, create_preview, prepare_image
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -123,6 +126,50 @@ def validate_image(content_type: str, data: bytes) -> str:
     return suffixes[content_type]
 
 
+def parse_bbox_regions(raw: str) -> list[dict]:
+    try:
+        values = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError("수정 영역 좌표를 읽을 수 없습니다.") from error
+    if not isinstance(values, list) or not 1 <= len(values) <= 20:
+        raise ValueError("수정 영역은 1~20개까지 지정할 수 있습니다.")
+    regions = []
+    for item in values:
+        if not isinstance(item, dict) or not isinstance(item.get("bbox"), list) or len(item["bbox"]) != 4:
+            raise ValueError("각 수정 영역은 bbox 좌표 4개가 필요합니다.")
+        target = item.get("target")
+        bbox = item["bbox"]
+        if not isinstance(target, str) or not target.strip() or len(target.strip()) > 200:
+            raise ValueError("각 수정 영역의 설명을 1~200자로 입력해 주세요.")
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in bbox):
+            raise ValueError("bbox 좌표는 숫자로 입력해 주세요.")
+        x1, y1, x2, y2 = [float(value) for value in bbox]
+        if (not all(math.isfinite(value) for value in (x1, y1, x2, y2))
+                or not 0 <= x1 < x2 <= 1 or not 0 <= y1 < y2 <= 1):
+            raise ValueError("bbox는 EXIF 보정 사진 기준 0~1 범위의 왼쪽 위·오른쪽 아래 좌표여야 합니다.")
+        regions.append({"target": target.strip(), "bbox": [x1, y1, x2, y2]})
+    return regions
+
+
+def create_bbox_union_mask(width: int, height: int, regions: list[dict], destination: Path) -> None:
+    """Create one OpenAI-compatible alpha mask from normalized [x1,y1,x2,y2] boxes."""
+    alpha = Image.new("L", (width, height), 255)
+    draw = ImageDraw.Draw(alpha)
+    for region in regions:
+        x1, y1, x2, y2 = region["bbox"]
+        left = max(0, min(width - 1, math.floor(x1 * width)))
+        top = max(0, min(height - 1, math.floor(y1 * height)))
+        right = max(left + 1, min(width, math.ceil(x2 * width)))
+        bottom = max(top + 1, min(height, math.ceil(y2 * height)))
+        draw.rectangle((left, top, right - 1, bottom - 1), fill=0)
+    mask = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+    mask.putalpha(alpha)
+    mask.save(destination, format="PNG", optimize=True)
+    if destination.stat().st_size > MAX_MASK_BYTES:
+        destination.unlink(missing_ok=True)
+        raise ValueError("생성된 mask가 4MB를 초과합니다. 사진 크기를 줄여 다시 시도해 주세요.")
+
+
 def run_command(command: list[str], timeout: int) -> str:
     completed = subprocess.run(
         command,
@@ -148,24 +195,38 @@ def run_mask_generation(session_id: str) -> None:
     started = time.monotonic()
     manifest["status"] = "masking"
     targets = manifest.get("targets") or [manifest["target"]]
-    manifest["message"] = f"{len(targets)}개 대상의 수정 위치를 각각 찾고 mask를 합치는 중"
+    manual_bbox = manifest.get("mode") == "manual-bbox"
+    manifest["message"] = (
+        f"{len(manifest['bboxRegions'])}개 사각형 영역으로 mask를 만드는 중"
+        if manual_bbox else f"{len(targets)}개 대상의 수정 위치를 각각 찾고 mask를 합치는 중"
+    )
     write_manifest(directory, manifest)
     try:
-        command = [
-            sys.executable,
-            str(TOOL_ROOT / "mask_from_text.py"),
-            "--image", str(directory / manifest["inputFile"]),
-        ]
-        for target in targets:
-            command.extend(["--target", target])
-        command.extend(["--model", MASK_MODEL, "--output-dir", str(directory / "mask-output")])
-        run_command(command, timeout=180 * len(targets))
-        mask_path = next((directory / "mask-output").rglob("mask.png"), None)
-        if mask_path is None:
-            raise RuntimeError("mask 생성 결과를 찾지 못했습니다.")
-        preview_path = mask_path.with_name("mask-preview.png")
-        plan_path = mask_path.with_name("mask-plan.json")
-        plan = read_manifest(plan_path)
+        if manual_bbox:
+            output_dir = directory / "mask-output" / "manual-bbox"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            source_path = output_dir / "source.png"
+            mask_path = output_dir / "mask.png"
+            preview_path = output_dir / "mask-preview.png"
+            width, height, _ = prepare_image(directory / manifest["inputFile"], source_path)
+            create_bbox_union_mask(width, height, manifest["bboxRegions"], mask_path)
+            create_preview(source_path, mask_path, preview_path)
+            plan = {"confidence": None, "targets": manifest["bboxRegions"]}
+        else:
+            command = [
+                sys.executable,
+                str(TOOL_ROOT / "mask_from_text.py"),
+                "--image", str(directory / manifest["inputFile"]),
+            ]
+            for target in targets:
+                command.extend(["--target", target])
+            command.extend(["--model", MASK_MODEL, "--output-dir", str(directory / "mask-output")])
+            run_command(command, timeout=180 * len(targets))
+            mask_path = next((directory / "mask-output").rglob("mask.png"), None)
+            if mask_path is None:
+                raise RuntimeError("mask 생성 결과를 찾지 못했습니다.")
+            preview_path = mask_path.with_name("mask-preview.png")
+            plan = read_manifest(mask_path.with_name("mask-plan.json"))
         manifest = read_manifest(manifest_path)
         manifest.update({
             "status": "ready",
@@ -174,7 +235,8 @@ def run_mask_generation(session_id: str) -> None:
             "maskPreviewFile": str(preview_path.relative_to(directory)),
             "maskConfidence": plan.get("confidence"),
             "targetMaskConfidences": plan.get("targets", []),
-            "maskModel": MASK_MODEL,
+            "maskSource": "manual-bbox" if manual_bbox else "vision-generated-polygon",
+            "maskModel": "사용자 지정 bbox" if manual_bbox else MASK_MODEL,
             "maskElapsedSeconds": round(time.monotonic() - started, 1),
         })
         write_manifest(directory, manifest)
@@ -198,8 +260,7 @@ def run_edit(session_id: str, edit_id: str) -> None:
     edit_path.write_text(json.dumps(edit, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     try:
         manifest = read_manifest(manifest_path)
-        run_command(
-            [
+        command = [
                 sys.executable,
                 str(TOOL_ROOT / "evaluate.py"),
                 "--image", str(directory / manifest["inputFile"]),
@@ -208,11 +269,11 @@ def run_edit(session_id: str, edit_id: str) -> None:
                 "--preserve", edit["preserve"],
                 "--model", edit["model"],
                 "--quality", edit["quality"],
-                "--crop-context-scale", str(edit["cropContextScale"]),
-                "--output-dir", str(directory / "edit-output"),
-            ],
-            timeout=420,
-        )
+        ]
+        if edit["cropContextScale"]:
+            command.extend(["--crop-context-scale", str(edit["cropContextScale"])])
+        command.extend(["--output-dir", str(directory / "edit-output")])
+        run_command(command, timeout=420)
         run_json = max((directory / "edit-output").rglob("run.json"), key=lambda path: path.stat().st_mtime)
         run_metadata = read_manifest(run_json)
         result_file = run_json.with_name("edited.png")
@@ -395,16 +456,26 @@ class EditEvalHandler(BaseHTTPRequestHandler):
         if self.headers.get_content_type() != "multipart/form-data":
             raise ValueError("사진 업로드 형식이 올바르지 않습니다.")
         fields, upload = parse_form(self.read_body(MAX_BODY_BYTES), self.headers.get("Content-Type", ""))
-        raw_target = fields.get("target", "")
-        targets = list(dict.fromkeys(
-            line.strip().lstrip("•-* ").strip()
-            for line in raw_target.splitlines()
-            if line.strip().lstrip("•-* ").strip()
-        ))
-        if not targets or len(raw_target) > 1500:
-            raise ValueError("수정 대상을 한 줄에 하나씩 1~1,500자로 입력해 주세요.")
-        if len(targets) > 8:
-            raise ValueError("한 번에 지정할 수 있는 수정 대상은 최대 8개입니다.")
+        mode = fields.get("mode", "text")
+        if mode not in {"text", "manual-bbox"}:
+            raise ValueError("수정 영역 지정 방식을 확인해 주세요.")
+        bbox_regions = []
+        if mode == "manual-bbox":
+            bbox_regions = parse_bbox_regions(fields.get("regions", ""))
+            targets = [region["target"] for region in bbox_regions]
+            target = " / ".join(targets)
+        else:
+            raw_target = fields.get("target", "")
+            targets = list(dict.fromkeys(
+                line.strip().lstrip("•-* ").strip()
+                for line in raw_target.splitlines()
+                if line.strip().lstrip("•-* ").strip()
+            ))
+            if not targets or len(raw_target) > 1500:
+                raise ValueError("수정 대상을 한 줄에 하나씩 1~1,500자로 입력해 주세요.")
+            if len(targets) > 8:
+                raise ValueError("한 번에 지정할 수 있는 수정 대상은 최대 8개입니다.")
+            target = " / ".join(targets)
         if upload is None:
             raise ValueError("편집할 사진을 선택해 주세요.")
         content_type, data = upload
@@ -417,9 +488,11 @@ class EditEvalHandler(BaseHTTPRequestHandler):
         manifest = {
             "id": session_id,
             "status": "queued",
-            "message": "수정 위치 찾기를 기다리는 중",
-            "target": " / ".join(targets),
+            "message": "수정 영역 mask를 준비하는 중",
+            "mode": mode,
+            "target": target,
             "targets": targets,
+            "bboxRegions": bbox_regions,
             "maskModel": MASK_MODEL,
             "inputFile": input_file,
             "createdAt": utc_now(),
@@ -439,7 +512,7 @@ class EditEvalHandler(BaseHTTPRequestHandler):
         quality = str(request.get("quality", ""))
         preserve = str(request.get("preserve", "")).strip()
         try:
-            crop_scale = float(request.get("cropContextScale", 3))
+            crop_scale = float(request.get("cropContextScale", 0))
         except (TypeError, ValueError):
             raise ValueError("편집 범위 숫자가 올바르지 않습니다.") from None
         if model not in IMAGE_MODELS:
@@ -450,7 +523,7 @@ class EditEvalHandler(BaseHTTPRequestHandler):
             raise ValueError("매우 높음·최대 품질은 GPT Image 2.5 모델에서 선택할 수 있습니다.")
         if len(preserve) > 2000:
             raise ValueError("보존할 내용은 2,000자 이하로 입력해 주세요.")
-        if not 1.5 <= crop_scale <= 8:
+        if crop_scale != 0 and not 1.5 <= crop_scale <= 8:
             raise ValueError("편집 문맥 크기는 1.5~8 범위로 선택해 주세요.")
         edit_id = uuid.uuid4().hex[:16]
         edit = {

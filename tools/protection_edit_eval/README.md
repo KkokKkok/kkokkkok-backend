@@ -19,9 +19,11 @@ tools/protection_edit_eval/.venv/bin/pip install -r tools/protection_edit_eval/r
 tools/protection_edit_eval/.venv/bin/python tools/protection_edit_eval/web_app.py
 ```
 
-출력된 `http://127.0.0.1:8765` 주소를 브라우저에서 엽니다. 사진과 수정 대상을 입력한 뒤 **수정 영역 찾기**를 누르면 mask가 생성됩니다. 붉은 mask 미리보기를 확인하고, 유지할 내용·편집 모델·품질·문맥 크기를 선택해 편집을 실행합니다. 한 mask에서 모델을 바꿔 여러 결과를 만들 수 있습니다. 이전 기록과 프롬프트는 `/results` 페이지에서 확인합니다.
+출력된 `http://127.0.0.1:8765` 주소를 브라우저에서 엽니다. 사진을 선택한 뒤 수정 영역을 지정합니다. **설명으로 AI가 찾기**는 기존처럼 텍스트 단서를 바탕으로 영역을 찾고, **사진 위에서 직접 지정**은 사진을 드래그해 사각형 영역을 여러 개 그립니다. 각 사각형에 지울 대상 설명을 적고 bbox mask를 만들면, 붉은 미리보기에서 영역을 확인할 수 있습니다. 유지할 내용·편집 모델·품질·문맥 크기를 선택해 한 번에 편집 요청을 보냅니다. 이전 기록과 bbox·프롬프트는 `/results` 페이지에서 확인합니다.
 
-수정 대상은 입력란에 **한 줄에 하나씩** 적습니다(최대 8개). 각 대상을 따로 찾아 만든 mask를 하나로 합쳐 미리보기로 보여주고, 편집 모델에는 합친 mask와 전체 대상을 한 번에 보내므로 결과는 한 번의 편집으로 만들어집니다.
+텍스트 방식은 수정 대상을 입력란에 **한 줄에 하나씩** 적습니다(최대 8개). 각 대상을 따로 찾아 만든 mask를 하나로 합칩니다. 직접 지정 방식은 최대 20개까지 사각형을 그릴 수 있으며, 각 bbox는 [왼쪽 x, 위쪽 y, 오른쪽 x, 아래쪽 y]의 0~1 정규화 값으로 저장합니다. 원점은 왼쪽 위이고 좌표는 EXIF 방향 보정 사진 기준입니다. 두 방식 모두 합친 mask와 설명을 편집 모델에 한 번 보내 결과를 만듭니다.
+
+직접 지정 방식은 mask를 만들 때 영역 찾기 AI를 호출하지 않습니다. 사진 위에서 그린 사각형이 그대로 mask가 되며, 실제 이미지 편집을 실행할 때만 사진·mask·대상 설명이 선택한 편집 모델로 전송됩니다.
 
 기본 비교 목록은 `gpt-image-2.5-sunburst`, `gpt-image-2.5-flare`, `gpt-image-2`, `gpt-image-1.5`, `gpt-image-1-mini`입니다. API 지원 여부는 계정과 시점에 따라 다를 수 있으며, 현재 지원 모델은 [Images Edit API 문서](https://developers.openai.com/api/reference/resources/images/methods/edit)에서 확인합니다. `gpt-image-2.5-sunburst`는 정밀 편집, `gpt-image-2.5-flare`는 빠른 편집의 비교 시작값입니다.
 

@@ -11,6 +11,7 @@ import evaluate
 from evaluate import Region, create_mask, crop_box_for_mask, prepare_image, run, validate_paths
 from mask_from_text import create_polygon_mask, polygon_points
 from preserve_outside import composite_preserved
+from web_app import create_bbox_union_mask, parse_bbox_regions
 
 
 class RegionTests(unittest.TestCase):
@@ -44,6 +45,65 @@ class TextMaskTests(unittest.TestCase):
             with Image.open(path) as mask:
                 self.assertEqual(mask.getpixel((50, 40))[3], 0)
                 self.assertEqual(mask.getpixel((5, 5))[3], 255)
+
+
+class ManualBboxTests(unittest.TestCase):
+    def test_parses_exif_oriented_normalized_bbox_regions(self):
+        regions = parse_bbox_regions(json.dumps([
+            {"target": "sign", "bbox": [0.1, 0.2, 0.4, 0.5]},
+            {"target": "logo", "bbox": [0.6, 0.1, 0.9, 0.3]},
+        ]))
+        self.assertEqual(regions[0]["bbox"], [0.1, 0.2, 0.4, 0.5])
+        self.assertEqual(regions[1]["target"], "logo")
+
+    def test_rejects_invalid_normalized_bbox(self):
+        with self.assertRaisesRegex(ValueError, "bbox는"):
+            parse_bbox_regions(json.dumps([{"target": "sign", "bbox": [0.8, 0.2, 0.4, 0.5]}]))
+
+    def test_union_bbox_mask_opens_each_dragged_rectangle(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "mask.png"
+            regions = [
+                {"target": "sign", "bbox": [0.1, 0.2, 0.3, 0.4]},
+                {"target": "logo", "bbox": [0.6, 0.5, 0.8, 0.75]},
+            ]
+            create_bbox_union_mask(100, 80, regions, path)
+            with Image.open(path) as mask:
+                self.assertEqual(mask.getpixel((15, 20))[3], 0)
+                self.assertEqual(mask.getpixel((65, 50))[3], 0)
+                self.assertEqual(mask.getpixel((50, 20))[3], 255)
+
+    def test_manual_bbox_session_builds_mask_on_exif_corrected_image(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            session_id = "a" * 16
+            session_dir = root / session_id
+            (session_dir / "edits").mkdir(parents=True)
+            photo = Image.new("RGB", (100, 80), (80, 120, 160))
+            exif = Image.Exif()
+            exif[274] = 6
+            photo.save(session_dir / "input.jpg", exif=exif)
+            manifest = {
+                "id": session_id,
+                "status": "queued",
+                "mode": "manual-bbox",
+                "target": "synthetic sign",
+                "targets": ["synthetic sign"],
+                "bboxRegions": [{"target": "synthetic sign", "bbox": [0.1, 0.2, 0.3, 0.4]}],
+                "inputFile": "input.jpg",
+                "edits": [],
+            }
+            (session_dir / "session.json").write_text(json.dumps(manifest), encoding="utf-8")
+            with patch("web_app.OUTPUT_ROOT", root):
+                from web_app import run_mask_generation
+                run_mask_generation(session_id)
+            saved = json.loads((session_dir / "session.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["status"], "ready")
+            self.assertEqual(saved["maskSource"], "manual-bbox")
+            with Image.open(session_dir / saved["maskFile"]) as mask:
+                self.assertEqual(mask.size, (80, 100))
+                self.assertEqual(mask.getpixel((12, 25))[3], 0)
+                self.assertEqual(mask.getpixel((4, 25))[3], 255)
 
 
 class PreserveOutsideTests(unittest.TestCase):
