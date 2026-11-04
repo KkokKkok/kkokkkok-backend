@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>보호 편집 결과 기록</title>
+    <link rel="stylesheet" href="/style.css">
+    <script defer src="/results.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">LOCAL IMAGE EDIT EVALUATION</p>
+        <h1>편집 결과 기록</h1>
+      </div>
+      <nav class="top-nav" aria-label="페이지 이동">
+        <a class="nav-link" href="/">새 편집</a>
+        <span class="local-badge">내 컴퓨터에서만 실행</span>
+      </nav>
+    </header>
+
+    <main>
+      <section class="panel">
+        <div class="section-heading">
+          <div>
+            <p class="step">이전 실행</p>
+            <h2>mask와 모델별 편집 결과</h2>
+          </div>
+          <button id="refresh-button" class="button secondary" type="button">새로고침</button>
+        </div>
+        <p class="help results-help">수정 대상, 실제 전송한 프롬프트, mask, 모델별 결과와 수행 시간을 확인할 수 있습니다.</p>
+        <p id="results-status" class="status" role="status"></p>
+        <div id="results-list" class="results-list"></div>
+        <p id="empty-results" class="empty-state hidden">아직 저장된 실행 기록이 없습니다.</p>
+      </section>
+    </main>
+
+    <footer>
+      <span>사진과 기록은 저장소 밖의 Downloads 폴더에 있습니다.</span>
+      <a href="/">편집 화면으로 돌아가기</a>
+    </footer>
+  </body>
+</html>

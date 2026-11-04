@@ -1,7 +1,8 @@
 const $ = (selector, root = document) => root.querySelector(selector);
-const historyElement = $("#history");
 const activeElement = $("#active-session");
 const maskStatus = $("#mask-status");
+const imageInput = $('#mask-form input[name="image"]');
+const selectedImagePreview = $("#selected-image-preview");
 let currentSessionId = null;
 let modelIds = ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2", "gpt-image-1.5", "gpt-image-1-mini"];
 
@@ -12,6 +13,21 @@ const labels = {
   "gpt-image-1.5": "GPT Image 1.5",
   "gpt-image-1-mini": "GPT Image 1 Mini",
 };
+
+let selectedImageUrl = null;
+imageInput.addEventListener("change", () => {
+  if (selectedImageUrl) URL.revokeObjectURL(selectedImageUrl);
+  const file = imageInput.files?.[0];
+  if (!file) {
+    selectedImagePreview.removeAttribute("src");
+    selectedImagePreview.classList.add("hidden");
+    selectedImageUrl = null;
+    return;
+  }
+  selectedImageUrl = URL.createObjectURL(file);
+  selectedImagePreview.src = selectedImageUrl;
+  selectedImagePreview.classList.remove("hidden");
+});
 
 function fileUrl(sessionId, kind, editId = "") {
   const query = new URLSearchParams({ kind });
@@ -53,12 +69,17 @@ function makeSelect(name, options, selected) {
   return select;
 }
 
-function field(labelText, control, extraClass = "") {
+function field(labelText, control, extraClass = "", hintText = "") {
   const wrapper = document.createElement("label");
   wrapper.className = `field ${extraClass}`.trim();
   const label = document.createElement("span");
   label.textContent = labelText;
   wrapper.append(label, control);
+  if (hintText) {
+    const hint = document.createElement("small");
+    hint.textContent = hintText;
+    wrapper.append(hint);
+  }
   return wrapper;
 }
 
@@ -92,7 +113,7 @@ function renderActive(session) {
 
   const target = document.createElement("p");
   target.className = "session-target";
-  target.textContent = `수정 대상: ${session.target}`;
+  target.textContent = `수정 대상:\n${(session.targets || [session.target]).map((item) => `• ${typeof item === "string" ? item : item.target}`).join("\n")}`;
   activeElement.append(target);
 
   const help = document.createElement("p");
@@ -149,8 +170,8 @@ function renderActive(session) {
     submit.textContent = "이 모델로 편집";
     form.append(
       field("이미지 편집 모델", model),
-      field("품질", quality),
-      field("주변 문맥", crop),
+      field("품질", quality, "", "수정 결과를 얼마나 높은 화질로 만들지 선택해요. 높이면 시간과 비용이 늘 수 있어요."),
+      field("주변 문맥", crop, "", "수정할 곳 주변을 얼마나 넓게 함께 보여줄지예요. 넓게 잡으면 주변과 자연스럽게 잇는 데 도움이 돼요."),
       submit,
       field("유지할 내용 (선택)", preserve, "preserve-field"),
     );
@@ -205,60 +226,10 @@ function renderTrial(session, edit) {
   return wrapper;
 }
 
-function renderHistory(sessions) {
-  historyElement.replaceChildren();
-  $("#empty-history").classList.toggle("hidden", sessions.length > 0);
-  for (const session of sessions) {
-    const card = document.createElement("article");
-    card.className = "session-card";
-    const title = document.createElement("div");
-    title.className = "session-title";
-    const copy = document.createElement("div");
-    const heading = document.createElement("h3");
-    heading.textContent = session.target;
-    const date = document.createElement("p");
-    date.className = "help";
-    date.textContent = new Date(session.createdAt).toLocaleString();
-    copy.append(heading, date);
-    const badge = document.createElement("span");
-    badge.className = `pill${session.status === "failed" ? " failed" : ""}`;
-    const maskTime = Number.isFinite(session.maskElapsedSeconds) ? `mask ${session.maskElapsedSeconds}초` : "mask 대기 중";
-    badge.textContent = `${session.status === "ready" ? "준비 완료" : session.status} · ${maskTime} · ${session.edits?.length || 0}회 편집`;
-    title.append(copy, badge);
-    card.append(title);
-    const select = document.createElement("button");
-    select.type = "button";
-    select.className = "button secondary history-select";
-    select.textContent = "이 mask 열기 / 모델 비교";
-    select.disabled = session.status !== "ready";
-    select.addEventListener("click", async () => {
-      const full = await getSession(session.id);
-      renderActive(full);
-      activeElement.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-    card.append(select);
-    if (session.edits?.length) {
-      const summary = document.createElement("div");
-      summary.className = "edit-results history-results";
-      for (const edit of session.edits.filter((item) => item.status === "completed")) {
-        summary.append(imageCard(labels[edit.model] || edit.model, fileUrl(session.id, "result", edit.id), "수정 결과"));
-      }
-      if (summary.childElementCount) card.append(summary);
-    }
-    historyElement.append(card);
-  }
-}
-
 async function getSession(sessionId) {
   const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
   if (!response.ok) throw new Error("실행 기록을 불러오지 못했습니다.");
   return response.json();
-}
-
-async function refreshHistory() {
-  const response = await fetch("/api/sessions");
-  if (!response.ok) throw new Error("실행 기록을 불러오지 못했습니다.");
-  renderHistory(await response.json());
 }
 
 async function pollSession(sessionId) {
@@ -267,7 +238,6 @@ async function pollSession(sessionId) {
     try {
       const session = await getSession(sessionId);
       if (currentSessionId === sessionId) renderActive(session);
-      await refreshHistory();
       const pending = session.status === "queued" || session.status === "masking" || (session.edits || []).some((edit) => edit.status === "queued" || edit.status === "editing");
       if (!pending) return;
     } catch (error) {
@@ -321,7 +291,6 @@ $("#mask-form").addEventListener("submit", async (event) => {
     if (!response.ok) throw new Error(result.error || "요청을 등록하지 못했습니다.");
     currentSessionId = result.id;
     renderActive(result);
-    await refreshHistory();
     pollSession(result.id);
     maskStatus.textContent = "진행 중입니다. mask가 준비되면 미리보기가 표시됩니다.";
   } catch (error) {
@@ -332,14 +301,11 @@ $("#mask-form").addEventListener("submit", async (event) => {
   }
 });
 
-$("#refresh-button").addEventListener("click", () => refreshHistory().catch((error) => { maskStatus.textContent = error.message; }));
-
 async function init() {
   try {
     const response = await fetch("/api/models");
     const data = await response.json();
     modelIds = data.imageModels;
-    await refreshHistory();
   } catch (error) {
     maskStatus.classList.add("error");
     maskStatus.textContent = error.message;

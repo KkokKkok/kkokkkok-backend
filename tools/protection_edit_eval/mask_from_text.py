@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 from evaluate import (
     MAX_MASK_BYTES,
@@ -126,10 +126,45 @@ def create_polygon_mask(
         raise ValueError("생성된 mask가 4MB를 초과합니다. 사진 크기를 줄여 다시 시도해 주세요.")
 
 
+def create_union_mask(
+    width: int,
+    height: int,
+    polygons: list[list[tuple[float, float]]],
+    destination: Path,
+    margin_px: int,
+) -> None:
+    """Combine independently located targets into one editable mask."""
+    combined_alpha = Image.new("L", (width, height), 255)
+    for index, points in enumerate(polygons):
+        temporary = destination.with_name(f"mask-item-{index + 1}.png")
+        create_polygon_mask(width, height, points, temporary, margin_px)
+        with Image.open(temporary) as item_mask:
+            combined_alpha = ImageChops.darker(combined_alpha, item_mask.getchannel("A"))
+        temporary.unlink(missing_ok=True)
+    combined = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+    combined.putalpha(combined_alpha)
+    combined.save(destination, format="PNG", optimize=True)
+    if destination.stat().st_size > MAX_MASK_BYTES:
+        destination.unlink(missing_ok=True)
+        raise ValueError("합친 mask가 4MB를 초과합니다. 사진 크기를 줄여 다시 시도해 주세요.")
+
+
+def normalize_targets(values: str | list[str]) -> list[str]:
+    entries = [values] if isinstance(values, str) else values
+    targets = [line.strip().lstrip("•-* ").strip() for value in entries for line in value.splitlines()]
+    targets = list(dict.fromkeys(target for target in targets if target))
+    if not targets:
+        raise ValueError("수정할 대상을 한 줄에 하나씩 입력해 주세요.")
+    if len(targets) > 8:
+        raise ValueError("한 번에 지정할 수 있는 수정 대상은 최대 8개입니다.")
+    return targets
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="텍스트 단서와 사진으로 실험용 AI 윤곽 mask를 만듭니다.")
     parser.add_argument("--image", type=Path, required=True, help="저장소 바깥에 둔 입력 사진 경로")
-    parser.add_argument("--target", required=True, help="마스크로 지정할 위치 단서를 설명하는 텍스트")
+    parser.add_argument("--target", action="append", required=True,
+                        help="마스크로 지정할 대상. 여러 번 지정하거나 줄바꿈으로 구분할 수 있습니다.")
     parser.add_argument("--model", default="gpt-6.1-terra", help="이미지에서 단서 윤곽을 찾는 비전 모델")
     parser.add_argument("--margin-px", type=int, default=24, help="윤곽 바깥으로 넓힐 픽셀 수")
     parser.add_argument("--output-dir", type=Path,
@@ -138,8 +173,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run(args: argparse.Namespace) -> Path:
-    if not args.target.strip():
-        raise ValueError("수정할 위치 단서 설명을 비워둘 수 없습니다.")
+    targets = normalize_targets(args.target)
     if args.margin_px < 0 or args.margin_px > 256:
         raise ValueError("mask 여백은 0~256px 범위로 지정해 주세요.")
     image_path = args.image.expanduser().resolve()
@@ -154,16 +188,25 @@ def run(args: argparse.Namespace) -> Path:
     mask_path = run_dir / "mask.png"
     preview_path = run_dir / "mask-preview.png"
     width, height, image_digest = prepare_image(image_path, source_path)
-    points, confidence = request_polygon(source_path, args.target, args.model)
-    create_polygon_mask(width, height, points, mask_path, args.margin_px)
+    polygons = []
+    target_results = []
+    for target in targets:
+        points, confidence = request_polygon(source_path, target, args.model)
+        polygons.append(points)
+        target_results.append({
+            "target": target,
+            "confidence": confidence,
+            "polygonNormalized": [{"x": x, "y": y} for x, y in points],
+        })
+    create_union_mask(width, height, polygons, mask_path, args.margin_px)
     create_preview(source_path, mask_path, preview_path)
     (run_dir / "mask-plan.json").write_text(json.dumps({
         "maskModel": args.model,
         "inputSha256": image_digest,
         "orientedImageSize": {"width": width, "height": height},
-        "target": args.target,
-        "confidence": confidence,
-        "polygonNormalized": [{"x": x, "y": y} for x, y in points],
+        "target": " / ".join(targets),
+        "targets": target_results,
+        "confidence": min(item["confidence"] for item in target_results),
         "marginPx": args.margin_px,
         "maskSource": "vision-generated-polygon",
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

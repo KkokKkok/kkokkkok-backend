@@ -147,20 +147,19 @@ def run_mask_generation(session_id: str) -> None:
     manifest = read_manifest(manifest_path)
     started = time.monotonic()
     manifest["status"] = "masking"
-    manifest["message"] = "수정 위치를 찾고 mask를 만드는 중"
+    targets = manifest.get("targets") or [manifest["target"]]
+    manifest["message"] = f"{len(targets)}개 대상의 수정 위치를 각각 찾고 mask를 합치는 중"
     write_manifest(directory, manifest)
     try:
-        run_command(
-            [
-                sys.executable,
-                str(TOOL_ROOT / "mask_from_text.py"),
-                "--image", str(directory / manifest["inputFile"]),
-                "--target", manifest["target"],
-                "--model", MASK_MODEL,
-                "--output-dir", str(directory / "mask-output"),
-            ],
-            timeout=180,
-        )
+        command = [
+            sys.executable,
+            str(TOOL_ROOT / "mask_from_text.py"),
+            "--image", str(directory / manifest["inputFile"]),
+        ]
+        for target in targets:
+            command.extend(["--target", target])
+        command.extend(["--model", MASK_MODEL, "--output-dir", str(directory / "mask-output")])
+        run_command(command, timeout=180 * len(targets))
         mask_path = next((directory / "mask-output").rglob("mask.png"), None)
         if mask_path is None:
             raise RuntimeError("mask 생성 결과를 찾지 못했습니다.")
@@ -170,10 +169,11 @@ def run_mask_generation(session_id: str) -> None:
         manifest = read_manifest(manifest_path)
         manifest.update({
             "status": "ready",
-            "message": "mask가 준비됐습니다. 붉은 영역을 확인한 뒤 편집 모델을 실행하세요.",
+            "message": f"{len(targets)}개 대상의 mask가 준비됐습니다. 붉은 영역을 확인한 뒤 한 번에 편집하세요.",
             "maskFile": str(mask_path.relative_to(directory)),
             "maskPreviewFile": str(preview_path.relative_to(directory)),
             "maskConfidence": plan.get("confidence"),
+            "targetMaskConfidences": plan.get("targets", []),
             "maskModel": MASK_MODEL,
             "maskElapsedSeconds": round(time.monotonic() - started, 1),
         })
@@ -204,7 +204,7 @@ def run_edit(session_id: str, edit_id: str) -> None:
                 str(TOOL_ROOT / "evaluate.py"),
                 "--image", str(directory / manifest["inputFile"]),
                 "--mask-file", str(directory / manifest["maskFile"]),
-                "--target", manifest["target"],
+                "--target", "; ".join(manifest.get("targets") or [manifest["target"]]),
                 "--preserve", edit["preserve"],
                 "--model", edit["model"],
                 "--quality", edit["quality"],
@@ -214,6 +214,7 @@ def run_edit(session_id: str, edit_id: str) -> None:
             timeout=420,
         )
         run_json = max((directory / "edit-output").rglob("run.json"), key=lambda path: path.stat().st_mtime)
+        run_metadata = read_manifest(run_json)
         result_file = run_json.with_name("edited.png")
         if not result_file.is_file():
             raise RuntimeError("편집 결과 이미지를 찾지 못했습니다.")
@@ -221,6 +222,7 @@ def run_edit(session_id: str, edit_id: str) -> None:
             "status": "completed",
             "message": "완료",
             "resultFile": str(result_file.relative_to(directory)),
+            "prompt": run_metadata.get("prompt", ""),
             "elapsedSeconds": round(time.monotonic() - started, 1),
         })
     except Exception as error:
@@ -249,7 +251,7 @@ class EditEvalHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
+            "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; "
             "connect-src 'self'; frame-ancestors 'none'",
         )
         super().end_headers()
@@ -285,7 +287,10 @@ class EditEvalHandler(BaseHTTPRequestHandler):
         if parsed.path == "/":
             self.send_static("index.html", "text/html; charset=utf-8")
             return
-        if parsed.path in {"/app.js", "/style.css"}:
+        if parsed.path == "/results":
+            self.send_static("results.html", "text/html; charset=utf-8")
+            return
+        if parsed.path in {"/app.js", "/results.js", "/style.css"}:
             name = parsed.path.lstrip("/")
             content_type = "text/javascript; charset=utf-8" if name.endswith(".js") else "text/css; charset=utf-8"
             self.send_static(name, content_type)
@@ -390,9 +395,16 @@ class EditEvalHandler(BaseHTTPRequestHandler):
         if self.headers.get_content_type() != "multipart/form-data":
             raise ValueError("사진 업로드 형식이 올바르지 않습니다.")
         fields, upload = parse_form(self.read_body(MAX_BODY_BYTES), self.headers.get("Content-Type", ""))
-        target = fields.get("target", "").strip()
-        if not target or len(target) > 1500:
-            raise ValueError("수정할 대상을 1~1,500자로 입력해 주세요.")
+        raw_target = fields.get("target", "")
+        targets = list(dict.fromkeys(
+            line.strip().lstrip("•-* ").strip()
+            for line in raw_target.splitlines()
+            if line.strip().lstrip("•-* ").strip()
+        ))
+        if not targets or len(raw_target) > 1500:
+            raise ValueError("수정 대상을 한 줄에 하나씩 1~1,500자로 입력해 주세요.")
+        if len(targets) > 8:
+            raise ValueError("한 번에 지정할 수 있는 수정 대상은 최대 8개입니다.")
         if upload is None:
             raise ValueError("편집할 사진을 선택해 주세요.")
         content_type, data = upload
@@ -406,7 +418,8 @@ class EditEvalHandler(BaseHTTPRequestHandler):
             "id": session_id,
             "status": "queued",
             "message": "수정 위치 찾기를 기다리는 중",
-            "target": target,
+            "target": " / ".join(targets),
+            "targets": targets,
             "maskModel": MASK_MODEL,
             "inputFile": input_file,
             "createdAt": utc_now(),
