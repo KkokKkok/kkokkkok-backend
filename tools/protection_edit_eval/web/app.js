@@ -37,10 +37,10 @@ function updateMode() {
   const target = $('textarea[name="target"]');
   target.required = !manual;
   selectedImagePreview.classList.toggle("hidden", !selectedImageUrl || manual);
-  $("#mask-button").textContent = manual ? "bbox mask 만들기" : "수정 영역 찾기";
+  $("#mask-button").textContent = manual ? "선택한 단서로 진행" : "수정 영역 찾기";
   if (manual) {
     drawCanvas();
-    maskStatus.textContent = "사진 위에서 드래그해 수정 영역을 지정하세요.";
+    maskStatus.textContent = "모의 분석 단서와 편집할 위치를 준비하세요.";
   } else {
     maskStatus.textContent = "";
   }
@@ -56,14 +56,14 @@ function drawCanvas() {
     const y = top * canvas.height;
     const width = (right - left) * canvas.width;
     const height = (bottom - top) * canvas.height;
-    canvasContext.fillStyle = "rgba(255, 74, 74, .22)";
+    canvasContext.fillStyle = box.selected ? "rgba(255, 74, 74, .22)" : "rgba(100, 115, 107, .16)";
     canvasContext.fillRect(x, y, width, height);
-    canvasContext.strokeStyle = "#ff4a4a";
+    canvasContext.strokeStyle = box.selected ? "#ff4a4a" : "#64736b";
     canvasContext.lineWidth = Math.max(2, canvas.width / 700);
     canvasContext.setLineDash([canvas.width / 160, canvas.width / 240]);
     canvasContext.strokeRect(x, y, width, height);
     canvasContext.setLineDash([]);
-    canvasContext.fillStyle = "#ff4a4a";
+    canvasContext.fillStyle = box.selected ? "#ff4a4a" : "#64736b";
     canvasContext.font = `bold ${Math.max(14, canvas.width / 45)}px sans-serif`;
     canvasContext.fillText(String(index + 1), x + 6, y + Math.max(18, canvas.width / 40));
   });
@@ -101,14 +101,15 @@ function renderBoxes() {
     const number = document.createElement("span");
     number.className = "bbox-number";
     number.textContent = String(index + 1);
-    const label = document.createElement("input");
-    label.type = "text";
-    label.maxLength = 200;
-    label.required = true;
-    label.value = box.target;
-    label.placeholder = "예: 컵 앞면 로고";
-    label.setAttribute("aria-label", `수정 영역 ${index + 1} 설명`);
-    label.addEventListener("input", () => { box.target = label.value; });
+    const selection = document.createElement("label");
+    selection.className = "bbox-selection";
+    const selected = document.createElement("input");
+    selected.type = "checkbox";
+    selected.checked = box.selected;
+    selected.addEventListener("change", () => { box.selected = selected.checked; drawCanvas(); });
+    const selectionText = document.createElement("span");
+    selectionText.textContent = "편집할 단서";
+    selection.append(selected, selectionText);
     const coordinates = document.createElement("code");
     coordinates.textContent = box.bbox.map((value) => value.toFixed(3)).join(", ");
     const remove = document.createElement("button");
@@ -120,10 +121,61 @@ function renderBoxes() {
       boxes.splice(index, 1);
       renderBoxes();
     });
-    item.append(number, label, coordinates, remove);
+    const header = document.createElement("div");
+    header.className = "bbox-item-header";
+    const identity = document.createElement("div");
+    identity.className = "bbox-identity";
+    identity.append(number, selection);
+    header.append(identity, coordinates, remove);
+    const fields = document.createElement("div");
+    fields.className = "mock-cue-fields";
+    const mainDescription = cueField("주요 설명", "예: 동작01 버스 노선", box.mainDescription, 200, true, (value) => { box.mainDescription = value; });
+    const subDescription = cueField("부가 설명", "예: 초록색 버스에서 동작01 노선이 확인됩니다", box.subDescription, 500, false, (value) => { box.subDescription = value; });
+    const riskLevel = cueSelect("위험도", ["주의", "높음"], box.riskLevel, (value) => { box.riskLevel = value; });
+    const riskRationale = cueField("산정 근거", "예: 노선과 차량 외관으로 활동 지역을 추정할 수 있습니다", box.riskRationale, 500, false, (value) => { box.riskRationale = value; }, true);
+    fields.append(mainDescription, subDescription, riskLevel, riskRationale);
+    item.append(header, fields);
     bboxList.append(item);
   });
   drawCanvas();
+}
+
+function cueField(title, placeholder, value, maxLength, required, onChange, multiline = false) {
+  const wrapper = document.createElement("label");
+  const caption = document.createElement("span");
+  caption.textContent = title;
+  const control = document.createElement(multiline ? "textarea" : "input");
+  if (!multiline) control.type = "text";
+  control.value = value || "";
+  control.placeholder = placeholder;
+  control.maxLength = maxLength;
+  control.required = required;
+  control.addEventListener("input", () => onChange(control.value));
+  wrapper.append(caption, control);
+  return wrapper;
+}
+
+function cueSelect(title, options, value, onChange) {
+  const wrapper = document.createElement("label");
+  const caption = document.createElement("span");
+  caption.textContent = title;
+  const control = document.createElement("select");
+  control.required = true;
+  control.setAttribute("aria-label", title);
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "위험도를 선택해 주세요";
+  control.append(placeholder);
+  for (const optionValue of options) {
+    const option = document.createElement("option");
+    option.value = optionValue;
+    option.textContent = optionValue;
+    control.append(option);
+  }
+  control.value = value || "";
+  control.addEventListener("change", () => onChange(control.value));
+  wrapper.append(caption, control);
+  return wrapper;
 }
 
 imageInput.addEventListener("change", () => {
@@ -197,7 +249,11 @@ canvas.addEventListener("pointerup", (event) => {
     maskStatus.textContent = "상자를 만들려면 조금 더 크게 드래그해 주세요.";
     return;
   }
-  boxes.push({ bbox: [Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)], target: "" });
+  boxes.push({
+    id: `mock-cue-${Date.now()}-${boxes.length + 1}`,
+    bbox: [Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)],
+    mainDescription: "", subDescription: "", riskLevel: "", riskRationale: "", selected: true,
+  });
   renderBoxes();
   maskStatus.textContent = "각 영역에 수정할 대상을 적어 주세요.";
 });
@@ -282,7 +338,7 @@ function renderActive(session) {
   step.className = "step";
   step.textContent = "수정 영역 확인";
   const heading = document.createElement("h2");
-  heading.textContent = "mask 미리보기";
+  heading.textContent = "선택한 단서 편집";
   titleCopy.append(step, heading);
   const status = document.createElement("span");
   status.className = `pill${session.status === "failed" ? " failed" : ""}`;
@@ -295,6 +351,37 @@ function renderActive(session) {
   title.append(titleCopy, status);
   activeElement.append(title);
 
+  if (session.analysisMode === "mock") {
+    const notice = document.createElement("p");
+    notice.className = "mock-notice";
+    notice.textContent = session.mockNotice || "모의 분석 결과이며 확정된 API 형식이 아닙니다.";
+    activeElement.append(notice);
+    const cards = document.createElement("section");
+    cards.className = "mock-result-cues";
+    const cardsTitle = document.createElement("h3");
+    cardsTitle.textContent = "분석 단서와 편집 선택";
+    cards.append(cardsTitle);
+    for (const [index, cue] of (session.bboxRegions || []).entries()) {
+      const card = document.createElement("article");
+      card.className = `mock-result-cue${cue.selected ? " selected" : ""}`;
+      const heading = document.createElement("strong");
+      heading.textContent = `${index + 1}. ${cue.mainDescription || cue.target}`;
+      card.append(heading);
+      const selectState = document.createElement("span");
+      selectState.className = "cue-selection-state";
+      selectState.textContent = cue.selected ? "이번 편집에 포함" : "이번 편집에서 제외";
+      card.append(selectState);
+      for (const [label, value] of [["부가 설명", cue.subDescription], ["위험도", cue.riskLevel], ["산정 근거", cue.riskRationale]]) {
+        if (!value) continue;
+        const row = document.createElement("p");
+        row.textContent = `${label}: ${value}`;
+        card.append(row);
+      }
+      cards.append(card);
+    }
+    activeElement.append(cards);
+  }
+
   const target = document.createElement("p");
   target.className = "session-target";
   target.textContent = `수정 대상:\n${(session.targets || [session.target]).map((item) => `• ${typeof item === "string" ? item : item.target}`).join("\n")}`;
@@ -303,17 +390,22 @@ function renderActive(session) {
   const help = document.createElement("p");
   help.className = "help";
   help.textContent = session.status === "ready"
-    ? `붉은 영역이 편집될 부분입니다. 같은 mask로 편집 모델을 바꿔가며 비교할 수 있어요. mask 모델: ${session.maskModel}`
+    ? "선택한 단서의 위치로 mask를 자동 생성했습니다. 아래에서 모델과 편집 옵션을 고르면 바로 편집합니다. mask 미리보기는 테스트 확인용입니다."
     : (session.message || "수정 위치를 찾고 있습니다.");
   activeElement.append(help);
 
   const pair = document.createElement("div");
-  pair.className = "image-pair with-top-gap";
-  pair.append(
-    imageCard("원본", fileUrl(session.id, "source"), "원본 사진을 준비하는 중"),
-    imageCard("수정 영역 미리보기", session.maskPreviewFile ? fileUrl(session.id, "mask-preview") : "", "mask 생성이 끝나면 미리보기가 표시됩니다."),
-  );
-  activeElement.append(pair);
+  activeElement.append(imageCard("원본", fileUrl(session.id, "source"), "원본 사진을 준비하는 중"));
+  const previewDetails = document.createElement("details");
+  previewDetails.className = "mask-preview-details";
+  const previewSummary = document.createElement("summary");
+  previewSummary.textContent = "테스트용 mask 미리보기 보기";
+  previewDetails.append(previewSummary);
+  const preview = document.createElement("div");
+  preview.className = "image-pair with-top-gap";
+  preview.append(imageCard("선택 영역 미리보기", session.maskPreviewFile ? fileUrl(session.id, "mask-preview") : "", "mask 생성이 끝나면 표시됩니다."));
+  previewDetails.append(preview);
+  activeElement.append(previewDetails);
 
   if (session.status === "failed") {
     const error = document.createElement("p");
@@ -357,7 +449,7 @@ function renderActive(session) {
       field("품질", quality, "", "수정 결과를 얼마나 높은 화질로 만들지 선택해요. 높이면 시간과 비용이 늘 수 있어요."),
       field("주변 문맥", crop, "", "전체 사진이 백엔드 기본 방식입니다. 배율을 고르면 수정할 곳 주변 일부만 잘라 비교합니다."),
       submit,
-      field("유지할 내용 (선택)", preserve, "preserve-field"),
+      field("추가로 유지할 내용 (선택)", preserve, "preserve-field", "비워두면 선택한 단서를 지우고 주변 장면에 맞게 채웁니다."),
     );
     form.addEventListener("submit", (event) => submitEdit(event, session.id, form));
     activeElement.append(form);
@@ -474,9 +566,12 @@ $("#mask-form").addEventListener("submit", async (event) => {
     const formData = new FormData(event.currentTarget);
     if (currentMode() === "manual-bbox") {
       if (!boxes.length) throw new Error("사진 위에서 수정할 영역을 한 개 이상 드래그해 주세요.");
-      if (boxes.some((box) => !box.target.trim())) throw new Error("각 영역에 수정할 대상을 적어 주세요.");
-      formData.set("target", boxes.map((box) => box.target.trim()).join("\n"));
-      formData.set("regions", JSON.stringify(boxes.map((box) => ({ target: box.target.trim(), bbox: box.bbox }))));
+      if (boxes.some((box) => !box.mainDescription.trim())) throw new Error("각 단서의 주요 설명을 입력해 주세요.");
+      if (boxes.some((box) => !["주의", "높음"].includes(box.riskLevel))) throw new Error("각 단서의 위험도를 선택해 주세요.");
+      if (!boxes.some((box) => box.selected)) throw new Error("편집할 단서를 하나 이상 선택해 주세요.");
+      const selected = boxes.filter((box) => box.selected);
+      formData.set("target", selected.map((box) => [box.mainDescription, box.subDescription].filter(Boolean).join(": ")).join("\n"));
+      formData.set("regions", JSON.stringify(boxes.map((box) => ({ ...box, mainDescription: box.mainDescription.trim(), subDescription: box.subDescription.trim(), riskLevel: box.riskLevel.trim(), riskRationale: box.riskRationale.trim() }))));
     }
     const response = await fetch("/api/sessions", { method: "POST", body: formData });
     const result = await response.json();
@@ -484,7 +579,7 @@ $("#mask-form").addEventListener("submit", async (event) => {
     currentSessionId = result.id;
     renderActive(result);
     pollSession(result.id);
-    maskStatus.textContent = "진행 중입니다. mask가 준비되면 미리보기가 표시됩니다.";
+    maskStatus.textContent = "선택한 단서의 편집 영역을 준비하고 있습니다.";
   } catch (error) {
     maskStatus.classList.add("error");
     maskStatus.textContent = error.message;

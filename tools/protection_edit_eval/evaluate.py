@@ -168,15 +168,18 @@ def crop_box_for_mask(mask: Image.Image, context_scale: float) -> tuple[int, int
 
 def make_prompt(target: str, preserve: str) -> str:
     clue_label = "visible clues" if "; " in target else "visible clue"
-    return (
+    prompt = (
         "Edit this photograph to reduce location-identifying information. "
         f"Naturally remove or replace the {clue_label}: {target}. "
         "The transparent region in the provided mask marks the area to edit. "
-        "Blend the replacement into the surrounding perspective, lighting, texture, and focus. "
-        "Keep all unmasked content, people, main subjects, composition, and photographic style unchanged. "
-        "Do not add text, logos, signs, or new location clues. "
-        f"Preserve these details: {preserve}"
+        "Remove the identifying detail rather than blurring or covering it with a patch. "
+        "Fill the edited area with a plausible continuation of the nearby scene, matching perspective, lighting, shadows, texture, and focus. "
+        "Keep all unmasked content, people, main subjects, composition, colors, and photographic style unchanged. "
+        "Do not add readable text, logos, signs, or new location-identifying details."
     )
+    if preserve.strip():
+        prompt += f" Preserve these user-requested details: {preserve.strip()}"
+    return prompt
 
 
 REVIEW_TEMPLATE = """# 편집 결과 품질 기록
@@ -264,7 +267,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mask-file", type=Path,
                         help="텍스트 기반 마스크 생성기 또는 외부 분석에서 만든 PNG 마스크")
     parser.add_argument("--target", required=True, help="지우거나 자연스럽게 바꿀 위치 단서")
-    parser.add_argument("--preserve", required=True, help="그대로 유지해야 할 주요 대상·분위기")
+    parser.add_argument("--preserve", default="", help="선택 사항: 그대로 유지할 주요 대상·분위기")
     parser.add_argument("--model", default="gpt-image-2.5-sunburst", help="기본 비교 모델 (편집 정밀도 기준)")
     parser.add_argument("--quality", choices=("low", "medium", "high", "xhigh", "max"), default="high")
     parser.add_argument("--crop-context-scale", type=float,
@@ -276,8 +279,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run(args: argparse.Namespace) -> Path:
-    if not args.target.strip() or not args.preserve.strip():
-        raise ValueError("수정 대상과 보존할 내용을 비워둘 수 없습니다.")
+    if not args.target.strip():
+        raise ValueError("수정 대상을 비워둘 수 없습니다.")
     image_path = args.image.expanduser().resolve()
     output_root = args.output_dir.expanduser().resolve()
     supplied_mask = args.mask_file.expanduser().resolve() if args.mask_file else None

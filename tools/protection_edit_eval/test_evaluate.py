@@ -8,7 +8,7 @@ from unittest.mock import patch
 from PIL import Image, ImageDraw
 
 import evaluate
-from evaluate import Region, create_mask, crop_box_for_mask, prepare_image, run, validate_paths
+from evaluate import Region, create_mask, crop_box_for_mask, make_prompt, prepare_image, run, validate_paths
 from mask_from_text import create_polygon_mask, polygon_points
 from preserve_outside import composite_preserved
 from web_app import create_bbox_union_mask, parse_bbox_regions
@@ -59,6 +59,60 @@ class ManualBboxTests(unittest.TestCase):
     def test_rejects_invalid_normalized_bbox(self):
         with self.assertRaisesRegex(ValueError, "bbox는"):
             parse_bbox_regions(json.dumps([{"target": "sign", "bbox": [0.8, 0.2, 0.4, 0.5]}]))
+
+    def test_parses_mock_analysis_cue_fields_and_selection(self):
+        regions = parse_bbox_regions(json.dumps([
+            {
+                "id": "cue-1", "mainDescription": "동작01 버스 노선",
+                "subDescription": "초록색 버스에서 노선명이 확인됩니다", "riskLevel": "주의",
+                "riskRationale": "노선으로 활동 지역을 추정할 수 있습니다", "selected": False,
+                "bbox": [0.1, 0.2, 0.4, 0.5],
+            },
+        ]))
+        self.assertEqual(regions[0]["mainDescription"], "동작01 버스 노선")
+        self.assertFalse(regions[0]["selected"])
+
+    def test_rejects_mock_analysis_risk_outside_supported_choices(self):
+        with self.assertRaisesRegex(ValueError, "주의 또는 높음"):
+            parse_bbox_regions(json.dumps([{
+                "mainDescription": "버스 노선", "riskLevel": "낮음", "bbox": [0.1, 0.2, 0.4, 0.5],
+            }]))
+
+    def test_union_mask_uses_only_selected_cues_in_manual_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            session_id = "b" * 16
+            folder = root / session_id
+            (folder / "edits").mkdir(parents=True)
+            Image.new("RGB", (100, 80), (80, 120, 160)).save(folder / "input.png")
+            manifest = {
+                "id": session_id, "status": "queued", "mode": "manual-bbox",
+                "target": "selected cue", "targets": ["selected cue"], "inputFile": "input.png", "edits": [],
+                "bboxRegions": [
+                    {"target": "selected cue", "selected": True, "bbox": [0.1, 0.2, 0.3, 0.4]},
+                    {"target": "excluded cue", "selected": False, "bbox": [0.6, 0.2, 0.8, 0.4]},
+                ],
+            }
+            (folder / "session.json").write_text(json.dumps(manifest), encoding="utf-8")
+            with patch("web_app.OUTPUT_ROOT", root):
+                from web_app import run_mask_generation
+                run_mask_generation(session_id)
+            saved = json.loads((folder / "session.json").read_text(encoding="utf-8"))
+            with Image.open(folder / saved["maskFile"]) as mask:
+                self.assertEqual(mask.getpixel((15, 20))[3], 0)
+                self.assertEqual(mask.getpixel((65, 20))[3], 255)
+
+
+class PromptTests(unittest.TestCase):
+    def test_default_prompt_removes_cue_without_required_preserve_text(self):
+        prompt = make_prompt("동작01 버스 노선", "")
+        self.assertIn("Naturally remove or replace", prompt)
+        self.assertIn("plausible continuation", prompt)
+        self.assertNotIn("Preserve these user-requested details", prompt)
+
+    def test_optional_preserve_instruction_is_appended(self):
+        prompt = make_prompt("cafe sign", "keep the warm lighting")
+        self.assertIn("Preserve these user-requested details: keep the warm lighting", prompt)
 
     def test_union_bbox_mask_opens_each_dragged_rectangle(self):
         with tempfile.TemporaryDirectory() as directory:
