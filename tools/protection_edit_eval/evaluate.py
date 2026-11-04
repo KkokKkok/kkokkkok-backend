@@ -167,9 +167,10 @@ def crop_box_for_mask(mask: Image.Image, context_scale: float) -> tuple[int, int
 
 
 def make_prompt(target: str, preserve: str) -> str:
+    clue_label = "visible clues" if "; " in target else "visible clue"
     return (
         "Edit this photograph to reduce location-identifying information. "
-        f"Naturally remove or replace the visible clue: {target}. "
+        f"Naturally remove or replace the {clue_label}: {target}. "
         "The transparent region in the provided mask marks the area to edit. "
         "Blend the replacement into the surrounding perspective, lighting, texture, and focus. "
         "Keep all unmasked content, people, main subjects, composition, and photographic style unchanged. "
