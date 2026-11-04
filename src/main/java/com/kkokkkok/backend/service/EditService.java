@@ -46,7 +46,10 @@ public class EditService {
         List<String> cueIds = normalizeCueIds(request);
         String preservePrompt = request.preservePrompt() == null || request.preservePrompt().isBlank()
                 ? null : request.preservePrompt().trim();
-        String fingerprint = fingerprint(request.inspectionId(), cueIds, preservePrompt);
+        int editStrength = request.editStrength() == null ? 50 : request.editStrength();
+        if (editStrength < 0 || editStrength > 100)
+            throw new ApiFailure(400, "INVALID_EDIT_STRENGTH", "수정 강도는 0~100 범위여야 합니다.");
+        String fingerprint = fingerprint(request.inspectionId(), cueIds, preservePrompt, editStrength);
 
         var existing = store.find(editId);
         if (existing.isPresent()) {
@@ -79,7 +82,7 @@ public class EditService {
         if (!reserved) return EditResponse.from(store.get(editId));
         try {
             var output = editClient.edit(new EditSubmission(source.assetId(), source.bytes(), source.contentType(),
-                    selectedCues, preservePrompt));
+                    selectedCues, preservePrompt, editStrength));
             var edited = assets.storeEditedVersion(source.assetId(), output.image(), output.contentType(), output.mock());
             store.complete(editId, edited.assetId(), output.mock(), output.providerVersion(), output.mockNotice());
             try {
@@ -130,7 +133,7 @@ public class EditService {
         return List.copyOf(selected);
     }
 
-    private String fingerprint(UUID inspectionId, List<String> cueIds, String preservePrompt) {
+    private String fingerprint(UUID inspectionId, List<String> cueIds, String preservePrompt, int editStrength) {
         try {
             var bytes = new ByteArrayOutputStream();
             var out = new DataOutputStream(bytes);
@@ -139,6 +142,7 @@ public class EditService {
             for (String cueId : cueIds) out.writeUTF(cueId);
             out.writeBoolean(preservePrompt != null);
             if (preservePrompt != null) out.write(preservePrompt.getBytes(StandardCharsets.UTF_8));
+            out.writeInt(editStrength);
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes.toByteArray()));
         } catch (IOException e) {
             throw new IllegalStateException(e);
