@@ -176,6 +176,21 @@ class StubAssetAnalysisFlowTest {
                         .content("{\"inspectionId\":\"" + inspectionId + "\",\"cueIds\":[\"unknown-cue\"]}"))
                 .andExpect(status().isBadRequest());
 
+        mvc.perform(post("/api/edits").header("X-App-Api-Key", "stub-test-key")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"inspectionId\":\"" + inspectionId + "\",\"cueIds\":[\"stub-observation-no-box\"]}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("ANALYSIS_CUE_GEOMETRY_UNAVAILABLE"));
+
+        mvc.perform(post("/api/edits").header("X-App-Api-Key", "stub-test-key")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"inspectionId\":\"" + inspectionId + "\",\"cueIds\":[\"stub-clue-1\",\"stub-observation-1\"]}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.cueIds", org.hamcrest.Matchers.hasSize(2)))
+                .andExpect(jsonPath("$.mock").value(true));
+
         UUID editId = UUID.randomUUID();
         String editRequest = "{\"inspectionId\":\"" + inspectionId + "\",\"cueIds\":[\"stub-clue-1\"],\"preservePrompt\":\"분위기는 유지해 주세요.\"}";
         MvcResult created = mvc.perform(post("/api/edits")
