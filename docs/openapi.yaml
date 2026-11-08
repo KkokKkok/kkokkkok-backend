@@ -2,11 +2,11 @@ openapi: 3.1.0
 info:
   title: 꼭꼭 백엔드 API (개발 초안)
   version: 0.1.0-draft
-  summary: 업로드, 사진별 단독 분석, 모의 보호 편집 API
+  summary: 사진 업로드, 단독 분석, 보호 편집, 누적 분석 개발 API
   description: >-
     이 문서는 현재 개발 서버 구현을 프론트 연동에 참고하도록 정리한 초안입니다.
-    사용자 인증, 운영 파일 저장소, 누적 분석, 분석 파이프라인의 EXIF 입력·결과 계약은
-    확정되지 않았으므로 운영 API 명세로 취급하지 않습니다. 기본 분석·편집 드라이버는
+    사용자 인증과 운영 파일 저장소는 확정되지 않았으므로 운영 API 명세로 취급하지 않습니다.
+    누적 점수는 임시 규칙 버전을 사용하며 기본 분석·편집 드라이버는
     합성 또는 복사 결과만 내며 mock=true를 표시합니다.
 servers:
   - url: http://localhost:8080
@@ -18,6 +18,7 @@ tags:
   - name: 단독 분석
   - name: 다량 단독 분석
   - name: 보호 편집
+  - name: 누적 분석
 paths:
   /api/assets:
     post:
@@ -297,6 +298,206 @@ paths:
               schema: { $ref: '#/components/schemas/EditResult' }
         '404': { $ref: '#/components/responses/NotFound' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/assets/{assetId}/capture-location:
+    parameters:
+      - $ref: '#/components/parameters/AssetId'
+    put:
+      tags: [자산]
+      summary: EXIF가 없는 사진의 촬영 위치 저장
+      description: 원본 EXIF를 덮어쓰지 않고 사용자가 직접 입력한 좌표를 별도로 보관합니다. 좌표는 응답에서 숨깁니다.
+      operationId: setManualCaptureLocation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CaptureLocationRequest' }
+      responses:
+        '200':
+          description: 촬영 위치 출처가 manual로 표시된 사진
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Asset' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/places:
+    get:
+      tags: [누적 분석]
+      summary: 이 앱 설치에 등록된 민감 장소 목록
+      parameters:
+        - $ref: '#/components/parameters/InstallationId'
+      responses:
+        '200':
+          description: 민감 좌표를 제외한 장소 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/SensitivePlace' }
+    post:
+      tags: [누적 분석]
+      summary: 민감 장소 등록
+      parameters:
+        - $ref: '#/components/parameters/InstallationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SensitivePlaceRequest' }
+      responses:
+        '201':
+          description: 등록된 장소 (GPS 좌표는 응답에서 제외)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SensitivePlace' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+  /api/places/{placeId}:
+    parameters:
+      - name: placeId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - $ref: '#/components/parameters/InstallationId'
+    get:
+      tags: [누적 분석]
+      summary: 민감 장소 조회
+      responses:
+        '200':
+          description: 민감 좌표를 제외한 장소 정보
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SensitivePlace' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [누적 분석]
+      summary: 민감 장소 정보 변경
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SensitivePlaceRequest' }
+      responses:
+        '200':
+          description: 변경된 장소 (좌표는 응답에서 제외)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SensitivePlace' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [누적 분석]
+      summary: 민감 장소와 누적 실행 기록 삭제
+      responses:
+        '204': { description: 삭제 완료 }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/places/{placeId}/assets:
+    parameters:
+      - name: placeId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - $ref: '#/components/parameters/InstallationId'
+    get:
+      tags: [누적 분석]
+      summary: 장소에 연결된 저장 사진 목록
+      responses:
+        '200':
+          description: 원시 촬영 좌표를 제외한 사진 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PlaceAsset' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      tags: [누적 분석]
+      summary: 저장 사진을 민감 장소에 연결
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlaceAssetRequest' }
+      responses:
+        '200':
+          description: 장소에 연결된 사진
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlaceAsset' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/places/{placeId}/assets/{assetId}:
+    parameters:
+      - name: placeId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: assetId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - $ref: '#/components/parameters/InstallationId'
+    delete:
+      tags: [누적 분석]
+      summary: 민감 장소에서 사진 연결 해제
+      responses:
+        '204': { description: 연결 해제 완료 }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/cumulative-runs:
+    post:
+      tags: [누적 분석]
+      summary: 저장된 단독 검사 결과로 누적 분석 실행
+      description: >-
+        사진별 최신 완료 검사 결과를 사용합니다. EXIF가 없는 사진은 별도의 촬영 좌표가 필요합니다.
+        중심 후보(medoid)에서 100m 이내인 사진을 묶고 결과 스냅샷을 저장합니다. 점수는
+        cumulative-score-v1-provisional이며 확률이 아닌 임시 상대 점수입니다. 등록 장소와 촬영 좌표는 응답에 포함하지 않습니다.
+      parameters:
+        - $ref: '#/components/parameters/InstallationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CumulativeRunRequest' }
+      responses:
+        '201':
+          description: 저장된 누적 분석 결과 스냅샷
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CumulativeRun' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/cumulative-runs/{runId}:
+    parameters:
+      - name: runId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - $ref: '#/components/parameters/InstallationId'
+    get:
+      tags: [누적 분석]
+      summary: 저장된 누적 분석 결과 조회
+      responses:
+        '200':
+          description: 실행 당시 결과 스냅샷
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CumulativeRun' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/cumulative-runs/place/{placeId}:
+    parameters:
+      - name: placeId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - $ref: '#/components/parameters/InstallationId'
+    get:
+      tags: [누적 분석]
+      summary: 장소별 누적 분석 이력 조회
+      responses:
+        '200':
+          description: 최신 실행 순 결과 스냅샷 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CumulativeRun' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /actuator/health:
     get:
       summary: Spring 서버 상태
@@ -317,6 +518,12 @@ components:
       name: X-App-Api-Key
       description: 단일 사용자 개발용 공유 키. 사용자 인증·데이터 격리를 제공하지 않습니다.
   parameters:
+    InstallationId:
+      name: X-Installation-Id
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+      description: 앱 설치 시 생성해 로컬에 보관하는 파일럿 사용자 식별자. 로그인 인증을 대신하지 않습니다.
     AssetId:
       name: assetId
       in: path
@@ -376,7 +583,7 @@ components:
         assetId: { type: string, format: uuid }
         contentType: { type: string, enum: [image/jpeg, image/png, image/webp] }
         sizeBytes: { type: integer, format: int64 }
-        locationStatus: { type: string, enum: [available, unavailable] }
+        locationStatus: { type: string, enum: [available, unavailable, manual] }
         capturedAt:
           type: [string, 'null']
           description: EXIF에 기록된 현지 촬영 시각. 시간대는 포함하지 않습니다.
@@ -397,6 +604,77 @@ components:
           maxItems: 10
           description: "사진에 붙이는 분류 태그(예: 집, 회사). 추후 누적 분석에서 활용할 수 있습니다."
           items: { type: string, minLength: 1, maxLength: 40 }
+    CaptureLocationRequest:
+      type: object
+      required: [latitude, longitude, source]
+      properties:
+        latitude: { type: number, minimum: -90, maximum: 90 }
+        longitude: { type: number, minimum: -180, maximum: 180 }
+        source: { type: string, enum: [manual] }
+    SensitivePlaceRequest:
+      type: object
+      required: [name, category, latitude, longitude]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        category: { type: string, enum: [home, work, school, other] }
+        latitude: { type: number, minimum: -90, maximum: 90, writeOnly: true }
+        longitude: { type: number, minimum: -180, maximum: 180, writeOnly: true }
+        radiusMeters: { type: integer, enum: [100, 300, 500, 1000], default: 300 }
+    SensitivePlace:
+      type: object
+      required: [placeId, name, category, radiusMeters, createdAt]
+      properties:
+        placeId: { type: string, format: uuid }
+        name: { type: string }
+        category: { type: string, enum: [home, work, school, other] }
+        radiusMeters: { type: integer, enum: [100, 300, 500, 1000] }
+        createdAt: { type: string, format: date-time }
+    PlaceAssetRequest:
+      type: object
+      required: [assetId]
+      properties:
+        assetId: { type: string, format: uuid }
+    PlaceAsset:
+      type: object
+      required: [assetId, contentType, sizeBytes, locationStatus, labels, assetRole, mock, createdAt]
+      properties:
+        assetId: { type: string, format: uuid }
+        contentType: { type: string }
+        sizeBytes: { type: integer, format: int64 }
+        locationStatus: { type: string, enum: [found, unavailable, manual] }
+        capturedAt: { type: [string, 'null'], format: date-time }
+        labels: { type: array, items: { type: string } }
+        assetRole: { type: string, enum: [original, edited] }
+        mock: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    CumulativeRunRequest:
+      type: object
+      required: [placeId, assetIds]
+      properties:
+        placeId: { type: string, format: uuid }
+        assetIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items: { type: string, format: uuid }
+    CumulativeRun:
+      type: object
+      required: [runId, placeId, algorithmVersion, scoreStatus, riskLevel, groups, excluded, createdAt]
+      properties:
+        runId: { type: string, format: uuid }
+        placeId: { type: string, format: uuid }
+        algorithmVersion: { type: string, example: cumulative-score-v1-provisional }
+        score: { type: [integer, 'null'], minimum: 0, maximum: 100 }
+        scoreMeaning: { type: string, example: relative_score_not_probability }
+        scoreStatus: { type: string, enum: [calculated, not_assessed] }
+        scoreNotice: { type: string }
+        riskLevel: { type: string, enum: [low, caution, high, not_assessed] }
+        repeatComponent: { type: number }
+        combinationComponent: { type: number }
+        groups: { type: array, items: { type: object, additionalProperties: true } }
+        excluded: { type: array, items: { type: object, additionalProperties: true } }
+        createdAt: { type: string, format: date-time }
     InspectionRequest:
       type: object
       description: 저장된 사진 자산 한 개를 분석합니다. 사진 태그는 이 요청에 포함하지 않습니다. EXIF GPS가 없을 때 locationFallback으로 촬영 위치를 보완할 수 있습니다.

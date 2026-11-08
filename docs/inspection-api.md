@@ -25,9 +25,9 @@
 
 `GET /api/assets`는 목록, `GET /api/assets/{assetId}`는 상세, `GET /api/assets/{assetId}/content`는 비공개 이미지 바이트를 돌려줍니다. 라벨은 `PUT /api/assets/{assetId}/labels`에 `{"labels":["집"]}`로 교체하며, 자산 삭제는 `DELETE /api/assets/{assetId}`입니다. 수정 자산은 `assetRole=edited`, `parentAssetId`에 원본 자산 ID를 표시합니다. EXIF가 없거나 읽을 수 없는 경우에도 업로드는 성공하고 `locationStatus`는 `unavailable`이 됩니다. GPS 좌표와 파일 저장 키는 일반 응답에 포함하지 않습니다.
 
-현재 구현은 로컬 개발용 저장 방식이며 사용자 계정·소유권 분리와 클라우드 저장소가 없습니다. 그러므로 이 계약을 다중 사용자 프로덕션 API로 간주하지 않습니다. 자산 삭제 뒤 분석 기록을 처리하는 규칙은 후속 설계 대상입니다.
+현재 구현은 로컬 개발용 저장 방식이며 사진 갤러리는 아직 설치 단위로 격리되지 않습니다. 누적 분석의 민감 장소·실행 이력은 `X-Installation-Id`별로 구분하지만, 이 헤더는 로그인 인증이 아닙니다. 이 계약을 다중 사용자 프로덕션 API로 간주하지 않습니다. 자산 삭제 뒤 분석 기록을 처리하는 규칙은 후속 설계 대상입니다.
 
-앱은 먼저 `/api/assets`로 사진을 저장하고 `POST /api/inspections`에 `assetId`를 전달한다. Spring은 파일을 불러와 선택한 분석 드라이버에 넘기며 작업 메타데이터와 `assetId`를 JPA/H2에 저장한다. 기존 PoC의 `/api/analysis-jobs`와 자동 호환되지 않는다. 실제 사진 분석·누적 점수·사용자 계정 인증은 포함되지 않는다.
+앱은 먼저 `/api/assets`로 사진을 저장하고 `POST /api/inspections`에 `assetId`를 전달한다. Spring은 파일을 불러와 선택한 분석 드라이버에 넘기며 작업 메타데이터와 `assetId`를 JPA/H2에 저장한다. 기존 PoC의 `/api/analysis-jobs`와 자동 호환되지 않는다. 단독 분석의 최종 점수·사용자 계정 인증은 포함되지 않는다. 누적 분석 점수는 아래의 임시 규칙 API만 제공한다.
 
 ## 개발용 stub 드라이버
 
@@ -54,6 +54,34 @@
 현재 `stub`은 사진 내용과 EXIF를 분석하지 않습니다. 앱은 `assetId`와 선택적 `locationFallback`을 보내고 Spring이 저장된 사진을 분석 드라이버에 전달합니다. EXIF GPS가 있으면 서버가 이를 우선하며 수동 입력값을 버립니다. GPS가 없을 때만 최대 120자의 사용자가 입력한 촬영 위치를 Spring의 비공개 검사 기록에 보관합니다. 이는 위치 검색이나 지오코딩을 뜻하지 않습니다. 사진의 보이는 픽셀만 분석하는 Node 모델에는 이 위치 텍스트를 전달하지 않습니다. 사진 태그는 분석 요청에 포함하지 않습니다.
 
 Spring `ANALYSIS_PROVIDER=node`의 단독 요청은 Node의 `/api/inspections`에 multipart `photo`와 동일한 `Idempotency-Key`를 보냅니다. API Key와 외부 전송 동의 헤더도 중계합니다. Node 결과의 `riskSummary`, `riskFactors`, bbox와 기타 분석 상세는 Spring이 전달합니다. 현재 연결 서버가 최종 점수를 만들지 않으므로 `riskSummary.score`는 `null`이며 앱은 미산정 상태로 표시합니다. 현재 Feature Discovery에서 bbox가 제공되지 않으면 앱은 영역을 표시하지 않고 관찰 설명만 보여줍니다. 이 응답 모양은 기초 연결용이고 API 계약은 파이프라인 합의 후 갱신합니다.
+
+## 누적 분석 개발 API (v1 provisional)
+
+누적 실행은 등록 장소와 연결한 저장 사진의 최신 완료 단독 검사를 다시 읽어 계산합니다. 앱은 첫 실행 때 UUID `X-Installation-Id`를 만들어 앱 내부에 저장하고 아래 장소·누적 이력 요청에 함께 보냅니다. 이 식별자는 로그인이나 갤러리 전체의 사용자 소유권 검사를 대신하지 않습니다.
+
+민감 장소 좌표는 요청에서만 받고 응답에 내보내지 않습니다. 사진 촬영 좌표는 원본 EXIF를 우선 사용합니다. EXIF가 없는 사진은 `PUT /api/assets/{assetId}/capture-location`에 사용자가 직접 입력한 위도·경도와 `source: manual`을 보냅니다. 원본 EXIF를 덮어쓰지 않고 직접 입력 위치를 별도 필드로 보관하며, 응답의 `locationStatus`는 `manual`이 됩니다. 민감 장소 좌표를 사진 촬영 좌표 대신 넣지 않습니다.
+
+```http
+POST /api/places
+X-Installation-Id: 11111111-1111-4111-8111-111111111111
+Content-Type: application/json
+```
+
+```json
+{"name":"우리 집","category":"home","latitude":37.5001,"longitude":127.0001}
+```
+
+장소 응답은 `placeId`, 이름, 종류, 생성 시각만 포함하고 좌표는 포함하지 않습니다. 저장 사진을 `POST /api/places/{placeId}/assets`의 `{"assetId":"..."}`로 한 장씩 연결합니다. 한 사진을 여러 민감 장소에 연결할 수 있습니다.
+
+누적 분석은 `POST /api/cumulative-runs`로 동기 실행합니다. 단독 모델을 다시 실행하지 않고 최신 완료 결과를 재사용합니다.
+
+```json
+{"placeId":"22222222-2222-4222-8222-222222222222","assetIds":["33333333-3333-4333-8333-333333333333"]}
+```
+
+결과에는 `runId`, `algorithmVersion`, 점수 상태, 그룹과 근거, 제외 사유가 들어가며 전체 스냅샷을 H2에 저장합니다. `GET /api/cumulative-runs/{runId}`는 이후에도 당시 결과를 그대로 돌려줍니다. `GET /api/cumulative-runs/place/{placeId}`로 해당 장소의 실행 기록을 확인할 수 있습니다. 점수 버전은 `cumulative-score-v1-provisional`로, 단독 분석의 `humanRisk`(있으면 우선) 또는 `modelRisk`를 지점 단위 1.0, 주의/중간 0.6, 낮음 0.2로 임시 대응합니다. 실제 위치 특정도 분류 규칙으로 확정된 값이 아니므로 상대 점수로만 표시하고 확률로 해석하지 않습니다. 평가된 단서가 하나도 없으면 0점이 아니라 `score: null`, `scoreStatus: not_assessed`를 반환합니다.
+
+그룹 중심은 각 남은 사진 중 반경 100m 이내 이웃이 가장 많은 촬영 좌표(medoid 후보)로 정하고, 각 구성 사진이 그 중심에서 100m 이내인지 확인합니다. 사진 간 연쇄 연결은 허용하지 않습니다. 같은 파일은 한 장의 독립 증거로 계산하고 방문 횟수는 촬영일 기준으로 셉니다. 점수 거리 구간만 결과에 표시하며 촬영·등록 좌표와 정확한 거리는 반환하지 않습니다. 이 API는 초기 규칙을 검토하기 위한 개발 버전으로, 팀 평가 후 그룹화·단서 강도·점수를 교체할 수 있습니다.
 
 요청 예시:
 

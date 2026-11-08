@@ -41,6 +41,8 @@ public class ImageAsset {
     // Coordinates are deliberately omitted from public DTOs; they may expose a sensitive location.
     private Double latitude;
     private Double longitude;
+    private Double manualLatitude;
+    private Double manualLongitude;
     private LocalDateTime capturedAt;
 
     @Column(nullable = false, length = 24)
@@ -76,6 +78,11 @@ public class ImageAsset {
     }
 
     public void replaceLabels(List<String> labels) { this.labels = new ArrayList<>(labels); }
+    public void setManualCaptureLocation(double latitude, double longitude) {
+        this.manualLatitude = latitude;
+        this.manualLongitude = longitude;
+        this.locationStatus = "manual";
+    }
     public UUID getId() { return id; }
     public String getContentType() { return contentType; }
     public long getSizeBytes() { return sizeBytes; }
@@ -85,6 +92,9 @@ public class ImageAsset {
     public boolean isMock() { return mock; }
     public Double getLatitude() { return latitude; }
     public Double getLongitude() { return longitude; }
+    public Double getCaptureLatitude() { return manualLatitude != null ? manualLatitude : latitude; }
+    public Double getCaptureLongitude() { return manualLongitude != null ? manualLongitude : longitude; }
+    public String getCaptureLocationSource() { return manualLatitude != null ? "manual" : locationStatus; }
     public LocalDateTime getCapturedAt() { return capturedAt; }
     public String getLocationStatus() { return locationStatus; }
     public Instant getCreatedAt() { return createdAt; }
