@@ -64,9 +64,11 @@ java -jar build/libs/backend-0.0.1-SNAPSHOT.jar
 
 테스트는 모의 HTTP Node 서버와 고정 stub 결과를 사용합니다. 실제 OpenAI나 AWS 분석을 호출하지 않습니다. `stub` 모드는 HTTP Node 서버에 연결하지 않고 작업 결과를 메모리에 보관하므로 서버 재시작 후에는 모의 작업을 조회할 수 없습니다. `node` 모드는 서버 주소 미설정 시 503, 연결 실패 시 504로 응답합니다.
 
-현재 공유 앱 키는 단일 사용자 개발 환경의 접근 제어입니다. 계정·사용자별 권한 격리·장소 관리·군집화·점수 규칙·보호 편집은 포함되지 않습니다. 분석 작업 메타데이터는 Spring의 JPA 저장소에서 관리합니다. 다중 사용자 앱에는 로그인 및 사용자별 접근권한을 먼저 추가해야 합니다. 브라우저의 교차 출처 CORS는 아직 열지 않았으며 실제 프론트 주소 확정 후 허용 목록을 설정합니다.
+현재 공유 앱 키는 단일 사용자 개발 환경의 접근 제어입니다. 계정과 사용자별 권한 격리는 제공하지 않으며, 민감 장소·누적 분석은 설치 ID를 쓰는 검토용 API입니다. 분석 작업 메타데이터는 Spring의 JPA 저장소에서 관리합니다. 다중 사용자 앱에는 로그인 및 사용자별 접근권한을 먼저 추가해야 합니다. 브라우저의 교차 출처 CORS는 아직 열지 않았으며 실제 프론트 주소 확정 후 허용 목록을 설정합니다.
 
-이미지 자산 API는 `POST /api/assets` 업로드, `GET /api/assets` 목록, `GET /api/assets/{assetId}` 상세, `GET /api/assets/{assetId}/content` 이미지 읽기, `PUT /api/assets/{assetId}/labels` 라벨 변경, `DELETE /api/assets/{assetId}` 삭제를 제공합니다. 파일은 `ASSET_STORAGE_ROOT`(기본 `./private-data/assets`) 아래 로컬에 저장하고 메타데이터·라벨은 H2에 저장합니다. JPEG/PNG/WebP만 허용하며 최대 10MB입니다. EXIF 촬영 시각과 GPS를 추출하지만 응답에는 원시 GPS를 노출하지 않습니다. EXIF 누락·손상은 업로드 실패 사유가 아닙니다.
+이미지 자산 API는 `POST /api/assets` 업로드, `GET /api/assets` 목록, `GET /api/assets/{assetId}` 상세, `GET /api/assets/{assetId}/content` 이미지 읽기, 라벨·촬영 위치 변경, `DELETE /api/assets/{assetId}` 삭제를 제공합니다. 파일은 `ASSET_STORAGE_ROOT`(기본 `./private-data/assets`) 아래 로컬에 저장하고 메타데이터·라벨은 H2에 저장합니다. JPEG/PNG/WebP만 허용하며 최대 10MB입니다. EXIF 촬영 시각과 GPS를 추출하지만 응답에는 원시 GPS를 노출하지 않습니다. EXIF 누락·손상은 업로드 실패 사유가 아닙니다.
+
+누적 분석 개발 API는 `/api/places`, `/api/places/{placeId}/assets`, `/api/cumulative-runs`를 제공합니다. 점수 규칙은 `cumulative-score-v1-provisional`로 표시하며 로그인 제외 파일럿에서 검토합니다. 입력·응답 예시와 한계는 [검사 API 문서](docs/inspection-api.md#누적-분석-개발-api-v1-provisional)를 참고하세요.
 
 이 저장소는 개발용 단일 사용자 흐름입니다. 로그인·사용자별 권한 격리·클라우드 파일 저장·자산과 분석/편집 이력의 삭제 규칙은 아직 포함하지 않으며, 공개 서비스에 배포할 준비가 된 저장소가 아닙니다.
 

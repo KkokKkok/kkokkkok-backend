@@ -74,6 +74,16 @@ public class ImageAssetService {
     }
 
     @Transactional
+    public AssetResponse setManualCaptureLocation(UUID id, double latitude, double longitude) {
+        if (!Double.isFinite(latitude) || latitude < -90 || latitude > 90
+                || !Double.isFinite(longitude) || longitude < -180 || longitude > 180)
+            throw new ApiFailure(400, "INVALID_CAPTURE_LOCATION", "촬영 위치 좌표를 확인해 주세요.");
+        ImageAsset asset = find(id);
+        asset.setManualCaptureLocation(latitude, longitude);
+        return AssetResponse.from(asset);
+    }
+
+    @Transactional
     public AssetResponse storeEditedVersion(UUID sourceAssetId, byte[] bytes, String contentType, boolean mock) {
         if (bytes == null || bytes.length == 0) throw new ApiFailure(502, "EDIT_OUTPUT_EMPTY", "수정 결과 이미지가 비어 있습니다.");
         if (bytes.length > MAX_BYTES) throw new ApiFailure(413, "EDIT_OUTPUT_TOO_LARGE", "수정 결과 이미지는 10MB 이하여야 합니다.");
@@ -105,7 +115,7 @@ public class ImageAssetService {
 
     private StoredAsset storedAsset(ImageAsset asset) {
         return new StoredAsset(asset.getId(), asset.getContentType(), storage.read(asset.getStorageKey()),
-                asset.getLatitude(), asset.getLongitude(), asset.getCapturedAt());
+                asset.getCaptureLatitude(), asset.getCaptureLongitude(), asset.getCapturedAt());
     }
 
     private List<String> normalizeLabels(List<String> labels) {

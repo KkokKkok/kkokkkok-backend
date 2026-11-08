@@ -2,6 +2,7 @@ package com.kkokkkok.backend.web.controller;
 
 import com.kkokkkok.backend.service.ImageAssetService;
 import com.kkokkkok.backend.web.dto.AssetLabelsRequest;
+import com.kkokkkok.backend.web.dto.CaptureLocationRequest;
 import com.kkokkkok.backend.web.dto.AssetResponse;
 import jakarta.validation.Valid;
 import java.net.URI;
@@ -45,6 +46,15 @@ public class ImageAssetController {
     @PutMapping("/{id}/labels")
     public AssetResponse labels(@PathVariable UUID id, @Valid @RequestBody AssetLabelsRequest request) {
         return service.replaceLabels(id, request.labels());
+    }
+
+    @PutMapping("/{id}/capture-location")
+    public AssetResponse captureLocation(@PathVariable UUID id,
+                                         @Valid @RequestBody CaptureLocationRequest request) {
+        if (!"manual".equals(request.source()))
+            throw new com.kkokkkok.backend.apiPayload.exception.ApiFailure(
+                    400, "INVALID_LOCATION_SOURCE", "직접 입력한 촬영 위치만 저장할 수 있습니다.");
+        return service.setManualCaptureLocation(id, request.latitude(), request.longitude());
     }
 
     @DeleteMapping("/{id}")
