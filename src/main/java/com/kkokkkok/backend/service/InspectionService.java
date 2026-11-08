@@ -25,8 +25,8 @@ public class InspectionService {
         if (request == null || request.assetId() == null) throw new ApiFailure(400,"INVALID_ASSET_ID","분석할 사진 ID를 확인해 주세요.");
         var asset=assets.loadForAnalysis(request.assetId());
         var input=validator.validate(request,asset);
-        try {store.reserve(key,input.fingerprint(),input.assetId());}
-        catch(DataIntegrityViolationException concurrentInsert) {store.reserve(key,input.fingerprint(),input.assetId());}
+        try {store.reserve(key,input.fingerprint(),input.assetId(),input.locationFallback());}
+        catch(DataIntegrityViolationException concurrentInsert) {store.reserve(key,input.fingerprint(),input.assetId(),input.locationFallback());}
         // Same key is also forwarded to Node, including after a timeout or server restart.
         var result=converter.fromNode(client.create(input,key),null);
         store.submitted(key,result);
