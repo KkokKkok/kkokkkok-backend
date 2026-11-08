@@ -29,6 +29,8 @@ public class NodeAnalysisClient implements AnalysisClient {
             @Override public String getFilename() {return "photo."+(input.contentType().equals("image/jpeg")?"jpg":input.contentType().substring(6));}
         },headers));
         // Keep the current Node multipart contract while its EXIF/location input is being agreed.
+        if (input.locationFallback() != null && !input.locationFallback().isBlank())
+            parts.add("address",input.locationFallback());
         parts.add("locationRole","capture");
         parts.add("compareHistory","false");
         return call(()->client.post().uri("/api/inspections").header("Idempotency-Key",key.toString())
