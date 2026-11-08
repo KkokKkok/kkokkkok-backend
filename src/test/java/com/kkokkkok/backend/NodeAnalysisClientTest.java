@@ -22,7 +22,10 @@ class NodeAnalysisClientTest {
         server.createContext("/api/inspections", exchange -> {
             if (!"secret".equals(exchange.getRequestHeaders().getFirst("X-Analysis-Api-Key"))) { exchange.sendResponseHeaders(401,-1); exchange.close(); return; }
             request.set(exchange.getRequestMethod() + " " + exchange.getRequestHeaders().getFirst("Idempotency-Key") + " " + new String(exchange.getRequestBody().readAllBytes(),StandardCharsets.UTF_8));
-            var body = ("{\"inspectionId\":\""+id+"\",\"status\":\"queued\"}").getBytes(StandardCharsets.UTF_8);
+            var json = exchange.getRequestMethod().equals("GET")
+                    ? "{\"inspectionId\":\""+id+"\",\"status\":\"completed\",\"riskSummary\":{\"score\":null,\"level\":\"pending\"},\"riskFactors\":[{\"id\":\"cue-1\",\"bbox\":[0.1,0.2,0.5,0.6],\"coordinateSpace\":\"analysis-normalized\"}]}"
+                    : "{\"inspectionId\":\""+id+"\",\"status\":\"queued\"}";
+            var body = json.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type","application/json");
             exchange.sendResponseHeaders(200,body.length); exchange.getResponseBody().write(body); exchange.close();
         });
@@ -31,11 +34,22 @@ class NodeAnalysisClientTest {
             var client = new NodeAnalysisClient(new AnalysisClientConfig().analysisRestClient("http://127.0.0.1:"+server.getAddress().getPort(),"secret",2),"configured");
             var assetId=UUID.randomUUID();
             var input = new com.kkokkkok.backend.domain.InspectionSubmission(assetId,
-                    new byte[]{(byte)255,(byte)216,(byte)255,0},"image/jpeg",null,null,null,"synthetic-fingerprint");
+                    new byte[]{(byte)255,(byte)216,(byte)255,0},"image/jpeg",null,null,null,"서울 합성 위치","synthetic-fingerprint");
             assertEquals(id.toString(),client.create(input,key).get("inspectionId"));
             assertTrue(request.get().contains(key.toString()));
+            assertTrue(request.get().contains("name=\"address\""));
+            assertTrue(request.get().contains("서울 합성 위치"));
             assertTrue(request.get().contains("compareHistory")); assertFalse(request.get().contains("private.jpg"));
-            assertEquals("queued",client.get(id).get("status"));
+            var gpsInput = new com.kkokkkok.backend.domain.InspectionSubmission(assetId,
+                    new byte[]{(byte)255,(byte)216,(byte)255,0},"image/jpeg",37.5,126.9,null,null,"synthetic-gps-fingerprint");
+            client.create(gpsInput,UUID.randomUUID());
+            assertFalse(request.get().contains("name=\"address\""));
+            var converted = new InspectionConverter().fromNode(client.get(id),id);
+            assertEquals("completed",converted.status());
+            var riskSummary = (java.util.Map<?,?>)converted.details().get("riskSummary");
+            assertNull(riskSummary.get("score"));
+            var riskFactors = (java.util.List<?>)converted.details().get("riskFactors");
+            assertEquals(java.util.List.of(0.1,0.2,0.5,0.6),((java.util.Map<?,?>)riskFactors.get(0)).get("bbox"));
             assertEquals(502,assertThrows(ApiFailure.class,()->new InspectionConverter().fromNode(client.get(id),UUID.randomUUID())).status);
             var unauthenticated = new NodeAnalysisClient(new AnalysisClientConfig().analysisRestClient("http://127.0.0.1:"+server.getAddress().getPort(),"wrong",2),"configured");
             assertEquals(502,assertThrows(ApiFailure.class,()->unauthenticated.get(id)).status);

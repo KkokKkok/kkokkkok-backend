@@ -51,7 +51,9 @@
 | assetId | 필수 UUID. `/api/assets`에서 업로드한 자산이어야 함. 서버가 저장된 이미지와 내부 EXIF를 로드 |
 | locationFallback | 선택, 최대 120자. EXIF GPS가 없을 때만 적용하는 사용자의 촬영 위치 텍스트 |
 
-현재 `stub`은 사진 내용과 EXIF를 분석하지 않습니다. 앱은 `assetId`와 선택적 `locationFallback`을 보내고 Spring이 저장된 사진을 분석 드라이버에 전달합니다. EXIF GPS가 있으면 서버가 이를 우선하며 수동 입력값을 버립니다. GPS가 없을 때만 최대 120자의 사용자가 입력한 촬영 위치를 분석 입력에 보관합니다. 이는 위치 검색이나 지오코딩을 뜻하지 않습니다. 실제 파이프라인에서 이 값을 소비하는 형식은 우신의 설계 전까지 미정입니다. Node 어댑터의 GPS/촬영시각/수동 위치 전달 형식도 아직 정하지 않았습니다. 사진 태그는 분석 요청에 포함하지 않습니다.
+현재 `stub`은 사진 내용과 EXIF를 분석하지 않습니다. 앱은 `assetId`와 선택적 `locationFallback`을 보내고 Spring이 저장된 사진을 분석 드라이버에 전달합니다. EXIF GPS가 있으면 서버가 이를 우선하며 수동 입력값을 버립니다. GPS가 없을 때만 최대 120자의 사용자가 입력한 촬영 위치를 분석 입력에 보관합니다. 이는 위치 검색이나 지오코딩을 뜻하지 않습니다. Node 연결에서는 이 임시 입력을 multipart 필드 `address`로 변환하며, Spring 검증에서 EXIF GPS가 발견된 사진은 수동 위치를 지운 뒤 전달하므로 `address`가 포함되지 않습니다. 원본 사진으로부터 GPS 추출은 Node가 담당합니다. 이 매핑은 현재 단독 파이프라인 연결용 초안이며 최종 분석 API 계약이 아닙니다. 사진 태그는 분석 요청에 포함하지 않습니다.
+
+Spring `ANALYSIS_PROVIDER=node`의 단독 요청은 Node의 `/api/inspections`에 multipart `photo`, 선택적 `address`, `locationRole=capture`, `compareHistory=false`와 동일한 `Idempotency-Key`를 보냅니다. Node 결과의 `riskSummary`, `riskFactors`, bbox와 기타 분석 상세는 Spring이 전달합니다. 현재 Node 파이프라인에서 점수 산정 전이면 `riskSummary.score`가 `null`일 수 있으며 앱은 이를 미산정 상태로 표시합니다. 이 응답 모양은 기초 연결용이고 API 계약은 파이프라인 합의 후 갱신합니다.
 
 요청 예시:
 
