@@ -137,7 +137,12 @@ public class EditService {
             if (value instanceof Map<?, ?> map && map.get("id") != null) {
                 Map<String, Object> cue = new LinkedHashMap<>();
                 map.forEach((key, item) -> cue.put(String.valueOf(key), item));
-                byId.putIfAbsent(String.valueOf(map.get("id")), cue);
+                String id = String.valueOf(map.get("id"));
+                Map<String, Object> existing = byId.putIfAbsent(id, cue);
+                if (existing != null && existing.get("bbox") == null && cue.get("bbox") != null) {
+                    existing.put("bbox", cue.get("bbox"));
+                    existing.put("coordinateSpace", cue.get("coordinateSpace"));
+                }
             }
         }
     }
