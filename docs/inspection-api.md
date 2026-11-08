@@ -164,9 +164,22 @@ Content-Type: application/json
 }
 ```
 
+`cueIds`에는 완료된 분석의 `riskFactors[].id` 또는 `visualObservations[].id`를 넣을 수 있습니다. 선택하는 항목은 한 번의 편집 요청에서 하나의 mask로 합쳐집니다. 시각 단서는 `bbox`가 `[왼쪽 x, 위쪽 y, 오른쪽 x, 아래쪽 y]` 순서의 0~1 정규화 좌표이며, `coordinateSpace`가 `analysis-normalized` 또는 `exif-oriented-normalized`로 제공되어야 합니다. 좌표가 빠진 시각 단서는 `409 ANALYSIS_CUE_GEOMETRY_UNAVAILABLE`로 거절합니다. GPS/EXIF 전용 metadata 단서는 bbox 없이 선택할 수 있으며 사진 결과를 PNG로 다시 인코딩해 촬영 메타데이터를 제거합니다.
+
 `editStrength`는 0~100 정수이며 생략하면 50(자연스럽게)을 사용합니다. 낮은 값은 적은 변경, 높은 값은 단서를 분명하게 제거하도록 서버 프롬프트에 반영합니다. 이미지 API의 출력 품질(`OPENAI_IMAGE_QUALITY`)과는 별도입니다.
 
-분석 단서의 `bbox`는 `[왼쪽 x, 위쪽 y, 오른쪽 x, 아래쪽 y]` 순서의 0~1 정규화 좌표이며, 원점은 왼쪽 위, x는 오른쪽으로, y는 아래쪽으로 증가합니다. 사진은 EXIF 방향을 보정한 기준으로 좌표를 mask에 옮깁니다. 선택한 시각 단서가 여러 개면 영역들을 하나의 mask로 합쳐 편집 요청 한 번에 전달합니다. GPS/EXIF 전용 단서는 시각 mask에 포함하지 않고, 편집 결과를 PNG로 다시 인코딩해 촬영 메타데이터를 제거합니다.
+예를 들어 bbox가 있는 OCR 관찰 영역을 편집하려면 해당 관찰의 ID를 `cueIds`로 전달합니다.
+
+```json
+{
+  "inspectionId":"33333333-3333-4333-8333-333333333333",
+  "cueIds":["33333333-3333-4333-8333-333333333333:ocr:1"],
+  "preservePrompt":"사진의 색감과 구도는 유지해 주세요.",
+  "editStrength":50
+}
+```
+
+분석 단서의 좌표 원점은 왼쪽 위, x는 오른쪽으로, y는 아래쪽으로 증가합니다. 사진은 EXIF 방향을 보정한 기준으로 좌표를 mask에 옮깁니다. 단서 ID는 `riskFactors`와 bbox가 있는 `visualObservations`에서 가져올 수 있습니다. 관찰 결과를 그대로 선택하는 경우 해당 관찰 ID를 보냅니다. 서버는 양쪽 목록을 확인하고 좌표를 검증한 뒤 선택 영역을 하나의 mask로 합칩니다.
 
 실제 provider 설정 예시는 `.env.example`을 참고합니다. `EDITING_PROVIDER=openai`와 키가 설정된 경우에만 유료 이미지 편집 요청을 보냅니다. 기본 model은 `gpt-image-2.5-sunburst`, 품질은 `high`입니다. 실제 편집은 JPEG/PNG 입력을 지원하며, 현재 provider는 WebP 디코딩을 지원하지 않습니다.
 

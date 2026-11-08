@@ -115,22 +115,58 @@ public class EditService {
 
     private List<Map<String, Object>> selectCues(Map<String, Object> analysis, List<String> requestedIds) {
         Object raw = analysis.get("riskFactors");
-        if (!(raw instanceof List<?> factors)) throw new ApiFailure(409, "ANALYSIS_CUES_UNAVAILABLE", "분석 결과에서 편집할 단서를 찾을 수 없습니다.");
+        Object observations = analysis.get("visualObservations");
+        if (!(raw instanceof List<?>) && !(observations instanceof List<?>))
+            throw new ApiFailure(409, "ANALYSIS_CUES_UNAVAILABLE", "분석 결과에서 편집할 단서를 찾을 수 없습니다.");
         Map<String, Map<String, Object>> byId = new LinkedHashMap<>();
-        for (Object factor : factors) {
-            if (factor instanceof Map<?, ?> map && map.get("id") != null) {
-                Map<String, Object> cue = new LinkedHashMap<>();
-                map.forEach((key, value) -> cue.put(String.valueOf(key), value));
-                byId.put(String.valueOf(map.get("id")), cue);
-            }
-        }
+        addCues(byId, raw);
+        addCues(byId, observations);
         List<Map<String, Object>> selected = new ArrayList<>();
         for (String id : requestedIds) {
             Map<String, Object> cue = byId.get(id);
             if (cue == null) throw new ApiFailure(400, "UNKNOWN_CUE_ID", "선택한 단서가 해당 분석 결과에 없습니다.");
+            validateGeometry(cue);
             selected.add(cue);
         }
         return List.copyOf(selected);
+    }
+
+    private void addCues(Map<String, Map<String, Object>> byId, Object raw) {
+        if (!(raw instanceof List<?> cues)) return;
+        for (Object value : cues) {
+            if (value instanceof Map<?, ?> map && map.get("id") != null) {
+                Map<String, Object> cue = new LinkedHashMap<>();
+                map.forEach((key, item) -> cue.put(String.valueOf(key), item));
+                byId.putIfAbsent(String.valueOf(map.get("id")), cue);
+            }
+        }
+    }
+
+    private void validateGeometry(Map<String, Object> cue) {
+        Object raw = cue.get("bbox");
+        if (raw == null && isMetadataOnly(cue)) return;
+        if (!(raw instanceof List<?> values) || values.size() != 4)
+            throw invalidGeometry();
+        Object space = cue.get("coordinateSpace");
+        if (!("analysis-normalized".equals(space) || "exif-oriented-normalized".equals(space)))
+            throw invalidGeometry();
+        double[] box = new double[4];
+        for (int index = 0; index < 4; index++) {
+            if (!(values.get(index) instanceof Number number)) throw invalidGeometry();
+            box[index] = number.doubleValue();
+            if (!Double.isFinite(box[index]) || box[index] < 0 || box[index] > 1) throw invalidGeometry();
+        }
+        if (box[0] >= box[2] || box[1] >= box[3]) throw invalidGeometry();
+    }
+
+    private boolean isMetadataOnly(Map<String, Object> cue) {
+        String type = String.valueOf(cue.getOrDefault("type", cue.getOrDefault("category", ""))).toLowerCase();
+        return type.contains("gps") || type.contains("exif") || type.contains("metadata");
+    }
+
+    private ApiFailure invalidGeometry() {
+        return new ApiFailure(409, "ANALYSIS_CUE_GEOMETRY_UNAVAILABLE",
+                "선택한 단서의 bbox가 없거나 사진 기준과 일치하지 않습니다.");
     }
 
     private String fingerprint(UUID inspectionId, List<String> cueIds, String preservePrompt, int editStrength) {

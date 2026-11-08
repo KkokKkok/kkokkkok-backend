@@ -61,6 +61,19 @@ public class StubAnalysisClient implements AnalysisClient {
         cue.put("coordinateSpace", "analysis-normalized");
         cue.put("sources", List.of("stub"));
 
+        Map<String, Object> observation = new LinkedHashMap<>();
+        observation.put("id", "stub-observation-1");
+        observation.put("name", "합성 예시 관찰 영역");
+        observation.put("category", "text");
+        observation.put("source", "stub");
+        observation.put("bbox", List.of(0.12, 0.20, 0.42, 0.38));
+        observation.put("coordinateSpace", "analysis-normalized");
+        Map<String, Object> observationWithoutBox = new LinkedHashMap<>();
+        observationWithoutBox.put("id", "stub-observation-no-box");
+        observationWithoutBox.put("name", "합성 예시 좌표 없는 관찰 영역");
+        observationWithoutBox.put("category", "object");
+        observationWithoutBox.put("source", "stub");
+
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("inspectionId", id.toString());
         body.put("status", "completed");
@@ -68,6 +81,7 @@ public class StubAnalysisClient implements AnalysisClient {
         body.put("pipelineVersion", PIPELINE_VERSION);
         body.put("riskSummary", Map.of("score", 42, "level", "caution"));
         body.put("riskFactors", List.of(cue));
+        body.put("visualObservations", List.of(observation, observationWithoutBox));
         body.put("mockNotice", "모의 예시 결과이며 실제 사진을 분석하지 않았습니다.");
         return body;
     }
@@ -77,6 +91,10 @@ public class StubAnalysisClient implements AnalysisClient {
         Object factors = copy.get("riskFactors");
         if (factors instanceof List<?> list) {
             copy.put("riskFactors", new ArrayList<>(list));
+        }
+        Object observations = copy.get("visualObservations");
+        if (observations instanceof List<?> list) {
+            copy.put("visualObservations", new ArrayList<>(list));
         }
         return copy;
     }
