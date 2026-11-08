@@ -191,6 +191,13 @@ class StubAssetAnalysisFlowTest {
                 .andExpect(jsonPath("$.cueIds", org.hamcrest.Matchers.hasSize(2)))
                 .andExpect(jsonPath("$.mock").value(true));
 
+        mvc.perform(post("/api/edits").header("X-App-Api-Key", "stub-test-key")
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"inspectionId\":\"" + inspectionId + "\",\"cueIds\":[\"stub-shared-cue-1\"]}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.cueIds[0]").value("stub-shared-cue-1"));
+
         UUID editId = UUID.randomUUID();
         String editRequest = "{\"inspectionId\":\"" + inspectionId + "\",\"cueIds\":[\"stub-clue-1\"],\"preservePrompt\":\"분위기는 유지해 주세요.\"}";
         MvcResult created = mvc.perform(post("/api/edits")
