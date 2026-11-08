@@ -33,12 +33,12 @@
 
 로컬에서 요청·응답 흐름을 확인할 때는 `ANALYSIS_PROVIDER=stub`을 사용한다(기본값). 이 드라이버는 사진 바이트를 분석하지 않고 고정된 합성 단서 하나와 예시 위험 점수를 반환하며, 응답에 `mock: true`, `pipelineVersion: "stub-v1"`, 모의 결과 안내를 넣는다. 실제 사진·모델·정확도는 검증하지 않는다.
 
-실제 분석 서버 어댑터는 `ANALYSIS_PROVIDER=node`를 지정하고 `NODE_ANALYSIS_BASE_URL`, 필요시 `NODE_ANALYSIS_API_KEY`를 설정해야 한다. 앱과 API 경로는 분석기 선택에 의존하지 않도록 `AnalysisClient` 인터페이스를 경계로 둔다.
+실제 분석 서버 어댑터는 `ANALYSIS_PROVIDER=node`를 지정하고 `NODE_ANALYSIS_BASE_URL`, `NODE_ANALYSIS_API_KEY`를 설정해야 한다. 사진을 외부 AI 분석으로 전송하려면 사용자가 전송에 동의한 뒤 `NODE_ANALYSIS_EXTERNAL_IMAGE_CONSENT=true`로 명시적으로 활성화한다. 기본값은 비활성화다. 이 설정은 현재 개발용 단일 사용자 흐름이며, 최종 사용자 동의 UX를 대체하지 않는다. 앱과 API 경로는 분석기 선택에 의존하지 않도록 `AnalysisClient` 인터페이스를 경계로 둔다.
 
 ## 공통
 
 - 기본 Spring 요청에는 `X-App-Api-Key`가 필요하다. 단일 사용자 개발 환경용 공유 키이며 사용자 계정 인증이 아니다. 로컬 에뮬레이터 연동 시에만 `SPRING_PROFILES_ACTIVE=local` 프로필로 키 검사를 끌 수 있으며 서버를 loopback에 바인딩한다. 여러 사용자의 데이터는 이 구조로 격리되지 않으므로 다중 사용자 서비스 전 인증/소유권 검증을 구현한다.
-- Spring → Node: 설정된 `X-Analysis-Api-Key`를 전달한다. Node는 이를 검증해야 한다.
+- Spring → 분석 서버: 설정된 `X-Analysis-Api-Key`와 동의 설정 `X-Analysis-Consent: true`를 전달한다. 분석 서버는 둘 다 확인해야 한다. 촬영 위치 보완 입력은 Spring의 비공개 검사 기록에만 저장하며 사진의 보이는 픽셀만 분석하는 모델에 전달하지 않는다.
 - 응답: JSON, `Cache-Control: no-store`. 사진·주소·응답·비밀키는 로그에 남기지 않는다.
 - ID는 UUID. 분석 이미지 좌표는 `analysis-normalized`, bbox는 `[x1,y1,x2,y2]`, 각 값 0~1. GPS는 bbox null.
 
@@ -51,9 +51,9 @@
 | assetId | 필수 UUID. `/api/assets`에서 업로드한 자산이어야 함. 서버가 저장된 이미지와 내부 EXIF를 로드 |
 | locationFallback | 선택, 최대 120자. EXIF GPS가 없을 때만 적용하는 사용자의 촬영 위치 텍스트 |
 
-현재 `stub`은 사진 내용과 EXIF를 분석하지 않습니다. 앱은 `assetId`와 선택적 `locationFallback`을 보내고 Spring이 저장된 사진을 분석 드라이버에 전달합니다. EXIF GPS가 있으면 서버가 이를 우선하며 수동 입력값을 버립니다. GPS가 없을 때만 최대 120자의 사용자가 입력한 촬영 위치를 분석 입력에 보관합니다. 이는 위치 검색이나 지오코딩을 뜻하지 않습니다. Node 연결에서는 이 임시 입력을 multipart 필드 `address`로 변환하며, Spring 검증에서 EXIF GPS가 발견된 사진은 수동 위치를 지운 뒤 전달하므로 `address`가 포함되지 않습니다. 원본 사진으로부터 GPS 추출은 Node가 담당합니다. 이 매핑은 현재 단독 파이프라인 연결용 초안이며 최종 분석 API 계약이 아닙니다. 사진 태그는 분석 요청에 포함하지 않습니다.
+현재 `stub`은 사진 내용과 EXIF를 분석하지 않습니다. 앱은 `assetId`와 선택적 `locationFallback`을 보내고 Spring이 저장된 사진을 분석 드라이버에 전달합니다. EXIF GPS가 있으면 서버가 이를 우선하며 수동 입력값을 버립니다. GPS가 없을 때만 최대 120자의 사용자가 입력한 촬영 위치를 Spring의 비공개 검사 기록에 보관합니다. 이는 위치 검색이나 지오코딩을 뜻하지 않습니다. 사진의 보이는 픽셀만 분석하는 Node 모델에는 이 위치 텍스트를 전달하지 않습니다. 사진 태그는 분석 요청에 포함하지 않습니다.
 
-Spring `ANALYSIS_PROVIDER=node`의 단독 요청은 Node의 `/api/inspections`에 multipart `photo`, 선택적 `address`, `locationRole=capture`, `compareHistory=false`와 동일한 `Idempotency-Key`를 보냅니다. Node 결과의 `riskSummary`, `riskFactors`, bbox와 기타 분석 상세는 Spring이 전달합니다. 현재 Node 파이프라인에서 점수 산정 전이면 `riskSummary.score`가 `null`일 수 있으며 앱은 이를 미산정 상태로 표시합니다. 이 응답 모양은 기초 연결용이고 API 계약은 파이프라인 합의 후 갱신합니다.
+Spring `ANALYSIS_PROVIDER=node`의 단독 요청은 Node의 `/api/inspections`에 multipart `photo`와 동일한 `Idempotency-Key`를 보냅니다. API Key와 외부 전송 동의 헤더도 중계합니다. Node 결과의 `riskSummary`, `riskFactors`, bbox와 기타 분석 상세는 Spring이 전달합니다. 현재 연결 서버가 최종 점수를 만들지 않으므로 `riskSummary.score`는 `null`이며 앱은 미산정 상태로 표시합니다. 현재 Feature Discovery에서 bbox가 제공되지 않으면 앱은 영역을 표시하지 않고 관찰 설명만 보여줍니다. 이 응답 모양은 기초 연결용이고 API 계약은 파이프라인 합의 후 갱신합니다.
 
 요청 예시:
 

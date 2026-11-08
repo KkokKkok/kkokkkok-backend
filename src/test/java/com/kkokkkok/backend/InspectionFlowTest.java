@@ -41,6 +41,7 @@ class InspectionFlowTest {
     @DynamicPropertySource static void properties(DynamicPropertyRegistry r) {
         r.add("analysis.provider",()->"node");
         r.add("analysis.base-url",()->"http://127.0.0.1:"+NODE.getAddress().getPort());
+        r.add("analysis.external-image-consent",()->true);
         r.add("app.api-key",()->"test-key");
         r.add("spring.datasource.url",()->"jdbc:h2:mem:flow-test;DB_CLOSE_DELAY=-1");
     }
@@ -55,8 +56,9 @@ class InspectionFlowTest {
             .header("Content-Type","multipart/form-data; boundary=boundary")
             .POST(HttpRequest.BodyPublishers.ofByteArray(body.toByteArray())).build(),HttpResponse.BodyHandlers.ofString());
     }
-    HttpResponse<String> post(UUID key,UUID assetId) throws Exception {
-        var requestBody="{\"assetId\":\""+assetId+"\"}";
+    HttpResponse<String> post(UUID key,UUID assetId) throws Exception { return post(key,assetId,null); }
+    HttpResponse<String> post(UUID key,UUID assetId,String fallback) throws Exception {
+        var requestBody="{\"assetId\":\""+assetId+"\""+(fallback==null?"":",\"locationFallback\":\""+fallback+"\"")+"}";
         return http.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+port+"/api/inspections"))
             .header("X-App-Api-Key","test-key").header("Idempotency-Key",key.toString())
             .header("Content-Type","application/json")
@@ -66,7 +68,7 @@ class InspectionFlowTest {
         UUID key=UUID.randomUUID();
         var uploaded=uploadAsset(); assertEquals(201,uploaded.statusCode(),uploaded.body());
         UUID assetId=UUID.fromString(com.jayway.jsonpath.JsonPath.read(uploaded.body(),"$.assetId"));
-        var created=post(key,assetId);
+        var created=post(key,assetId,"합성 촬영 위치");
         assertEquals(202,created.statusCode(),created.body());
         assertEquals("/api/inspections/"+JOB,created.headers().firstValue("Location").orElseThrow());
         assertTrue(created.body().contains("\"riskFactors\":[]"));
@@ -74,7 +76,9 @@ class InspectionFlowTest {
         assertFalse(created.body().contains("\"details\""));
         assertEquals(JOB,repository.findById(key).orElseThrow().getInspectionId());
         assertEquals(assetId,repository.findById(key).orElseThrow().getAssetId());
-        assertEquals(202,post(key,assetId).statusCode());
+        assertEquals("합성 촬영 위치",repository.findById(key).orElseThrow().getLocationFallback());
+        assertFalse(created.body().contains("합성 촬영 위치"));
+        assertEquals(202,post(key,assetId,"합성 촬영 위치").statusCode());
         int calls=POSTS.get();
         var otherUpload=uploadAsset();
         UUID otherAssetId=UUID.fromString(com.jayway.jsonpath.JsonPath.read(otherUpload.body(),"$.assetId"));

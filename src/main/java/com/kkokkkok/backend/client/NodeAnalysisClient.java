@@ -19,21 +19,23 @@ public class NodeAnalysisClient implements AnalysisClient {
     private static final ParameterizedTypeReference<Map<String,Object>> BODY=new ParameterizedTypeReference<>() {};
     private final RestClient client;
     private final boolean configured;
-    public NodeAnalysisClient(RestClient analysisRestClient,@Value("${analysis.base-url:}") String url) {
-        client=analysisRestClient; configured=!url.isBlank();
+    private final boolean externalImageConsent;
+    public NodeAnalysisClient(RestClient analysisRestClient,@Value("${analysis.base-url:}") String url,
+            @Value("${analysis.external-image-consent:false}") boolean externalImageConsent) {
+        client=analysisRestClient; configured=!url.isBlank(); this.externalImageConsent=externalImageConsent;
     }
     public Map<String,Object> create(InspectionSubmission input,UUID key) {
+        if (!externalImageConsent) throw new ApiFailure(503,"ANALYSIS_CONSENT_REQUIRED","외부 이미지 분석 전송 동의가 설정되지 않았습니다.");
         var parts=new LinkedMultiValueMap<String,Object>();
         var headers=new HttpHeaders(); headers.setContentType(MediaType.parseMediaType(input.contentType()));
         parts.add("photo",new HttpEntity<>(new ByteArrayResource(input.photo()) {
             @Override public String getFilename() {return "photo."+(input.contentType().equals("image/jpeg")?"jpg":input.contentType().substring(6));}
         },headers));
-        // Keep the current Node multipart contract while its EXIF/location input is being agreed.
-        if (input.locationFallback() != null && !input.locationFallback().isBlank())
-            parts.add("address",input.locationFallback());
+        // The fallback is retained privately in Spring; the visual-only model must not receive place text.
         parts.add("locationRole","capture");
         parts.add("compareHistory","false");
         return call(()->client.post().uri("/api/inspections").header("Idempotency-Key",key.toString())
+            .header("X-Analysis-Consent","true")
             .contentType(MediaType.MULTIPART_FORM_DATA).body(parts).retrieve().body(BODY));
     }
     public Map<String,Object> get(UUID id) {return call(()->client.get().uri("/api/inspections/{id}",id).retrieve().body(BODY));}
