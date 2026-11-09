@@ -1,0 +1,5 @@
+# Use together with compose.postgres.yaml. Authentication cannot be disabled by local profile.
+services:
+  backend:
+    environment:
+      SPRING_PROFILES_ACTIVE: postgres,pilot

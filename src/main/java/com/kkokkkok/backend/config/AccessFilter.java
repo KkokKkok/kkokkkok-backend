@@ -12,6 +12,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 /** Single-user pilot access only. Replace with authenticated user ownership before multi-user deployment. */
 @Component
 public class AccessFilter extends OncePerRequestFilter {
+    @Value("${app.pilot.enabled:false}") private boolean pilotEnabled;
     private final String key;
     private final boolean apiKeyRequired;
     public AccessFilter(@Value("${app.api-key:}") String key,
@@ -20,7 +21,7 @@ public class AccessFilter extends OncePerRequestFilter {
         this.apiKeyRequired = apiKeyRequired;
     }
     @Override protected void doFilterInternal(HttpServletRequest req,HttpServletResponse res,FilterChain chain) throws ServletException,IOException {
-        if (!req.getServletPath().startsWith("/api/")) { chain.doFilter(req,res); return; }
+        if (pilotEnabled || !req.getRequestURI().substring(req.getContextPath().length()).startsWith("/api/")) { chain.doFilter(req,res); return; }
         String provided = req.getHeader("X-App-Api-Key");
         if (apiKeyRequired && (key.isBlank() || provided == null || !MessageDigest.isEqual(
                 key.getBytes(StandardCharsets.UTF_8), provided.getBytes(StandardCharsets.UTF_8)))) {

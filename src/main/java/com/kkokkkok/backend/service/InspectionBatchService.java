@@ -72,6 +72,7 @@ public class InspectionBatchService {
 
     public InspectionBatchResponse get(UUID batchId) {
         var current = store.items(batchId);
+        current.forEach(item -> assets.get(item.getAssetId()));
         for (var item : current) {
             if (item.getInspectionId() == null || item.getStatus().equals("completed") || item.getStatus().equals("failed")) continue;
             try {

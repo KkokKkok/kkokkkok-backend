@@ -53,6 +53,7 @@ public class EditService {
 
         var existing = store.find(editId);
         if (existing.isPresent()) {
+            assets.get(existing.get().getSourceAssetId());
             if (!existing.get().getFingerprint().equals(fingerprint))
                 throw new ApiFailure(409, "IDEMPOTENCY_CONFLICT", "같은 요청 키로 다른 편집을 요청할 수 없습니다.");
             return EditResponse.from(existing.get());
@@ -63,6 +64,7 @@ public class EditService {
         if (inspection.getAssetId() == null)
             throw new ApiFailure(409, "SOURCE_ASSET_MISSING", "원본 사진과 연결된 분석 결과가 아닙니다.");
 
+        assets.get(inspection.getAssetId());
         Map<String, Object> analysis = analysisClient.get(request.inspectionId());
         if (analysis == null) throw new ApiFailure(502, "INVALID_ANALYSIS_RESPONSE", "분석 결과를 확인할 수 없습니다.");
         if (!"completed".equals(analysis.get("status")))
@@ -100,7 +102,10 @@ public class EditService {
         }
     }
 
-    public EditResponse get(UUID editId) { return EditResponse.from(store.get(editId)); }
+    public EditResponse get(UUID editId) {
+        var run = store.get(editId); assets.get(run.getSourceAssetId());
+        return EditResponse.from(run);
+    }
 
     private List<String> normalizeCueIds(EditRequest request) {
         if (request == null || request.inspectionId() == null || request.cueIds() == null || request.cueIds().isEmpty())
