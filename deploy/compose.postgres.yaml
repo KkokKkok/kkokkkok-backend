@@ -1,0 +1,28 @@
+services:
+  backend:
+    image: kkokkkok-backend:postgres
+    environment:
+      SPRING_PROFILES_ACTIVE: postgres
+      DB_URL: jdbc:postgresql://postgres:5432/kkokkkok
+      DB_USERNAME: kkokkkok
+      DB_PASSWORD: ${DB_PASSWORD:?Set a local database password}
+    depends_on:
+      postgres:
+        condition: service_healthy
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: kkokkkok
+      POSTGRES_USER: kkokkkok
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set a local database password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    mem_limit: 512m
+volumes:
+  postgres-data:
