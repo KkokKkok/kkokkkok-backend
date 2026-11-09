@@ -1,0 +1,32 @@
+name: kkokkkok-analysis
+services:
+  analysis:
+    image: ${ANALYSIS_IMAGE:?Use an immutable ECR digest}
+    env_file:
+      - path: analysis.runtime.env
+        format: raw
+    ports: ['3000:3000']
+    volumes:
+      - analysis-data:/data
+    init: true
+    stop_grace_period: 5m
+    restart: unless-stopped
+    mem_limit: 4g
+    depends_on:
+      vision: {condition: service_healthy}
+    logging: {driver: json-file, options: {max-size: 10m, max-file: '3'}}
+  vision:
+    image: ${VISION_IMAGE:?Use an immutable ECR digest}
+    platform: linux/amd64
+    env_file:
+      - path: vision.runtime.env
+        format: raw
+    volumes:
+      - vision-models:/data
+    init: true
+    restart: unless-stopped
+    mem_limit: 10g
+    logging: {driver: json-file, options: {max-size: 10m, max-file: '3'}}
+volumes:
+  analysis-data:
+  vision-models:

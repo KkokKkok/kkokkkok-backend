@@ -44,3 +44,10 @@ out/
 
 ### VS Code ###
 .vscode/
+
+# Generated cloud runtime configuration/credentials; examples remain tracked.
+deploy/aws/*.runtime.env
+deploy/aws/release.env
+deploy/aws/config.json
+deploy/aws/rds-ca.pem
+**/__pycache__/

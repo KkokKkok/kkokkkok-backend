@@ -1,0 +1,82 @@
+name: AWS private pilot (manual, disabled by default)
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type DEPLOY after account/budget/domain setup and cloud validation approval'
+        required: true
+        type: string
+      analysis_commit:
+        description: 'Full reviewed 40-character commit SHA from jack0928/KkokKkok-PoC'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: aws-private-pilot
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: vars.AWS_PILOT_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' && inputs.confirmation == 'DEPLOY'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_PILOT_CONFIG: ${{ vars.AWS_PILOT_CONFIG }}
+      APP_INSTANCE_ID: ${{ vars.AWS_APP_INSTANCE_ID }}
+      ANALYSIS_INSTANCE_ID: ${{ vars.AWS_ANALYSIS_INSTANCE_ID }}
+      BACKEND_REPOSITORY: ${{ vars.AWS_BACKEND_REPOSITORY_URI }}
+      ANALYSIS_REPOSITORY: ${{ vars.AWS_ANALYSIS_REPOSITORY_URI }}
+      VISION_REPOSITORY: ${{ vars.AWS_VISION_REPOSITORY_URI }}
+      ANALYSIS_COMMIT: ${{ inputs.analysis_commit }}
+    steps:
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          persist-credentials: false
+      - name: Validate non-secret deployment inputs
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, re, sys
+          sys.path.insert(0, 'deploy/aws')
+          from refresh_runtime import validate
+          assert re.fullmatch('[0-9a-f]{40}', os.environ['ANALYSIS_COMMIT'])
+          config = validate(json.loads(os.environ['AWS_PILOT_CONFIG']))
+          assert config['region'] == os.environ['AWS_REGION']
+          for key in ['BACKEND_REPOSITORY', 'ANALYSIS_REPOSITORY', 'VISION_REPOSITORY']:
+              assert re.fullmatch(r'\d{12}\.dkr\.ecr\.' + re.escape(config['region']) + r'\.amazonaws\.com/[a-z0-9][a-z0-9/_.-]*', os.environ[key])
+          PY
+      - uses: actions/checkout@f548e57e544e1ff5a4c46bf1e1b8685f8e4a348a
+        with:
+          repository: jack0928/KkokKkok-PoC
+          ref: ${{ inputs.analysis_commit }}
+          path: analysis-source
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@f95a14875b75259d2a3105bff6460ac2e653eea1
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: kkokkkok-pilot-${{ github.run_id }}
+      - uses: aws-actions/amazon-ecr-login@ee2ea2a59f8987a92a17393fa13446b5a68e5d59
+      - name: Build tested CPU images and publish immutable release
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker build --platform linux/amd64 -t "$BACKEND_REPOSITORY:$tag" .
+          docker build --platform linux/amd64 -t "$ANALYSIS_REPOSITORY:$tag" analysis-source
+          docker build --platform linux/amd64 -f analysis-source/analysis-service/Dockerfile -t "$VISION_REPOSITORY:$tag" analysis-source
+          for repository in "$BACKEND_REPOSITORY" "$ANALYSIS_REPOSITORY" "$VISION_REPOSITORY"; do
+            docker push "$repository:$tag"
+          done
+          echo "BACKEND_IMAGE=$(docker image inspect "$BACKEND_REPOSITORY:$tag" --format '{{index .RepoDigests 0}}')" >> "$GITHUB_ENV"
+          echo "ANALYSIS_IMAGE=$(docker image inspect "$ANALYSIS_REPOSITORY:$tag" --format '{{index .RepoDigests 0}}')" >> "$GITHUB_ENV"
+          echo "VISION_IMAGE=$(docker image inspect "$VISION_REPOSITORY:$tag" --format '{{index .RepoDigests 0}}')" >> "$GITHUB_ENV"
+          echo "RELEASE_ID=$tag" >> "$GITHUB_ENV"
+      - name: Deploy analysis then app through SSM with health checks and rollback
+        env:
+          KKOKKKOK_ENABLE_AWS_DEPLOY: '1'
+        run: python3 deploy/aws/deploy_release.py --execute

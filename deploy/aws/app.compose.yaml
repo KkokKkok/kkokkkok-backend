@@ -1,0 +1,36 @@
+name: kkokkkok-app
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?Use an immutable ECR digest}
+    env_file:
+      - path: app.runtime.env
+        format: raw
+    volumes:
+      - ./rds-ca.pem:/run/rds-ca.pem:ro
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 2g
+    logging: {driver: json-file, options: {max-size: 10m, max-file: '3'}}
+  gateway:
+    image: caddy@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?Set the DNS name pointing to the app EIP}
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      backend: {condition: service_healthy}
+    healthcheck:
+      test: [CMD-SHELL, 'wget -q -O /dev/null http://127.0.0.1:2019/config/']
+      interval: 10s
+      timeout: 3s
+      retries: 18
+    restart: unless-stopped
+    logging: {driver: json-file, options: {max-size: 10m, max-file: '3'}}
+volumes:
+  caddy-data:
+  caddy-config:
