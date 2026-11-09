@@ -108,3 +108,5 @@ Service는 외부 HTTP 호출 중 DB 트랜잭션을 유지하지 않습니다. 
 동일 요청 키+다른 입력은 409입니다. 동일 키+같은 입력은 Node에 동일 키를 다시 보내므로 Node의 중복 실행 방지도 필요합니다. 통신 실패 시 `submitting` 상태가 남아 같은 키로 재시도할 수 있습니다. 이 상태는 Node 분석 실패 판정이 아닙니다.
 
 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`로 DB 연결을 설정할 수 있습니다. 현재 JDBC 드라이버는 H2만 포함합니다. 운영 DB 선정 후 해당 드라이버와 Flyway 같은 버전별 마이그레이션을 추가하고, 개발용 `ddl-auto=update`를 `validate`로 전환해야 합니다.
+
+Docker로 로컬 배포 환경을 확인하려면 [컨테이너 실행 안내](deploy/README.md)를 참고하세요.
