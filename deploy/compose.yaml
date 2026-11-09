@@ -1,0 +1,55 @@
+name: kkokkkok-local-deploy
+services:
+  backend:
+    image: kkokkkok-backend:local
+    build:
+      context: ..
+    environment:
+      APP_API_KEY: ${APP_API_KEY:?Set a local API key in an ignored env file}
+      ANALYSIS_PROVIDER: stub
+      EDITING_PROVIDER: stub
+      OPENAI_API_KEY: ""
+      DB_URL: jdbc:h2:file:/data/backend
+      ASSET_STORAGE_ROOT: /data/assets
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-18081}:8080"
+    volumes:
+      - backend-data:/data
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: 1g
+  analysis:
+    profiles: [analysis]
+    image: kkokkkok-analysis:local
+    build:
+      context: ${ANALYSIS_CONTEXT:-../../KkokKkok-PoC}
+    environment:
+      ANALYSIS_API_KEY: ${ANALYSIS_API_KEY:-}
+      ANALYSIS_API_HOSTS: analysis:3000
+      OPENAI_API_KEY: ""
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+    volumes:
+      - analysis-data:/data
+    init: true
+    stop_grace_period: 5m
+    restart: unless-stopped
+  vision:
+    platform: linux/amd64
+    profiles: [vision]
+    image: kkokkkok-vision:local
+    build:
+      context: ${ANALYSIS_CONTEXT:-../../KkokKkok-PoC}
+      dockerfile: analysis-service/Dockerfile
+    environment:
+      ANALYSIS_VISION_STAGE_KEY: ${ANALYSIS_VISION_STAGE_KEY:-}
+    volumes:
+      - vision-models:/data
+    init: true
+    restart: unless-stopped
+volumes:
+  backend-data:
+  analysis-data:
+  vision-models:
