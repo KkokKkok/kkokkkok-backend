@@ -1,6 +1,6 @@
 # 로컬 배포 환경 준비
 
-AWS 계정과 유료 AI 호출 없이 Docker 실행 환경을 확인하는 구성입니다. 기존 휴대폰용 서버/사진 폴더를 사용하지 않고 독립 Docker volume에 저장합니다. 현재 기본 DB는 H2이며 PostgreSQL 전환은 다음 작업입니다.
+AWS 계정과 유료 AI 호출 없이 Docker 실행 환경을 확인하는 구성입니다. 기존 휴대폰용 서버/사진 폴더를 사용하지 않고 독립 Docker volume에 저장합니다. 기본 개발 DB는 H2이며, 아래 PostgreSQL 구성을 별도로 선택할 수 있습니다.
 
 ```sh
 cp deploy/.env.example deploy/.env
@@ -26,3 +26,20 @@ python3 deploy/smoke.py verify --state private-data/container-smoke-state.json
 ```
 
 인증, 합성 사진 업로드, 모의 결과 구분, 모의 결과의 누적 점수 제외와 사진/누적 스냅샷 보존을 확인합니다. stub 분석 드라이버의 원본 응답은 기존과 같이 메모리에 있어 서버 재시작 후 재조회할 수 없습니다. 실제 분석 드라이버의 저장은 분석 서버 영속 volume으로 별도 검증합니다.
+
+## PostgreSQL과 스키마 버전 관리
+
+실제 배포용 DB는 PostgreSQL을 사용합니다. 로컬에서도 AWS 없이 확인할 수 있습니다. `.env`의 `DB_PASSWORD`를 충분히 긴 임의 값으로 설정합니다.
+
+```sh
+docker build -t kkokkkok-backend:postgres .
+docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.postgres.yaml up -d backend
+```
+
+PostgreSQL 포트는 호스트에 공개하지 않습니다. DB와 사진은 각각 독립 volume에 보관하며, DB만 백업하면 사진까지 복원되는 구조는 아닙니다.
+
+`postgres` Spring profile은 Flyway로 최초 스키마를 생성하고 Hibernate는 스키마 일치 여부만 검사합니다. 이후 변경은 기존 SQL 수정 대신 새 버전 migration으로 추가합니다. baseline과 clean은 자동 실행하지 않습니다. 개발·테스트의 H2 profile은 기존 자동 생성 방식을 유지합니다.
+
+기존 H2 파일을 PostgreSQL로 자동 변환하지 않습니다. 현재 로컬 실제 사진·기록은 그대로 유지하며, 실제 배포에 옮길 데이터는 별도 내보내기/가져오기와 백업 검증이 필요합니다. RDS 연결·권한·백업 복구는 AWS 계정 연결 후 검증합니다.
+
+위 합성 데이터 smoke 검증은 같은 방식으로 실행할 수 있습니다. PostgreSQL 컨테이너와 backend를 모두 교체한 뒤 `verify`로 사진·누적 스냅샷 보존을 확인합니다. 기본 모의 분석 원본 응답의 메모리 저장 제약은 동일합니다.

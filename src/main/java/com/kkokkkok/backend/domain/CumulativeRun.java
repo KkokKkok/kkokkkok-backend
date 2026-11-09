@@ -3,7 +3,6 @@ package com.kkokkkok.backend.domain;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
@@ -15,7 +14,7 @@ public class CumulativeRun {
     @Id private UUID id;
     @Column(nullable = false) private UUID placeId;
     @Column(nullable = false, length = 80) private String algorithmVersion;
-    @Lob @Column(nullable = false) private String resultJson;
+    @Column(nullable = false, columnDefinition = "text") private String resultJson;
     @Column(nullable = false, updatable = false) private Instant createdAt;
 
     protected CumulativeRun() {}
