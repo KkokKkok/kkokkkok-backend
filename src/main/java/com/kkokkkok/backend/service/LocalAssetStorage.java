@@ -7,10 +7,12 @@ import java.nio.file.StandardOpenOption;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
-/** Development storage implementation. Replace behind this boundary when deployment storage is chosen. */
+/** Default storage for local development. */
 @Component
-public class LocalAssetStorage {
+@ConditionalOnProperty(name = "assets.provider", havingValue = "local", matchIfMissing = true)
+public class LocalAssetStorage implements AssetStorage {
     private final Path root;
 
     public LocalAssetStorage(@Value("${assets.storage-root:./private-data/assets}") String root) {
@@ -18,13 +20,7 @@ public class LocalAssetStorage {
     }
 
     public String save(UUID id, byte[] bytes, String contentType) {
-        String extension = switch (contentType) {
-            case "image/jpeg" -> ".jpg";
-            case "image/png" -> ".png";
-            case "image/webp" -> ".webp";
-            default -> throw new IllegalArgumentException("Unsupported content type");
-        };
-        String key = id + extension;
+        String key = AssetStorage.key(id, contentType);
         try {
             Files.createDirectories(root);
             Files.write(resolve(key), bytes, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
@@ -45,7 +41,7 @@ public class LocalAssetStorage {
     }
 
     private Path resolve(String key) {
-        Path resolved = root.resolve(key).normalize();
+        Path resolved = root.resolve(AssetStorage.validateKey(key)).normalize();
         if (!resolved.getParent().equals(root)) throw new IllegalArgumentException("Invalid storage key");
         return resolved;
     }

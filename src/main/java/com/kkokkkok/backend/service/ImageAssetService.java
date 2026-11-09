@@ -17,10 +17,10 @@ import org.springframework.web.multipart.MultipartFile;
 public class ImageAssetService {
     private static final long MAX_BYTES = 10L * 1024 * 1024;
     private final ImageAssetRepository repository;
-    private final LocalAssetStorage storage;
+    private final AssetStorage storage;
     private final ImageMetadataExtractor metadataExtractor;
 
-    public ImageAssetService(ImageAssetRepository repository, LocalAssetStorage storage,
+    public ImageAssetService(ImageAssetRepository repository, AssetStorage storage,
                              ImageMetadataExtractor metadataExtractor) {
         this.repository = repository;
         this.storage = storage;
