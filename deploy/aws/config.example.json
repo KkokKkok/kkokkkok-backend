@@ -1,0 +1,11 @@
+{
+  "region": "ap-northeast-2",
+  "domain": "api.example.com",
+  "analysisPrivateIp": "10.42.0.10",
+  "databaseEndpoint": "database.example.ap-northeast-2.rds.amazonaws.com",
+  "databaseSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:example-database",
+  "runtimeSecretArn": "arn:aws:secretsmanager:ap-northeast-2:111111111111:secret:example-runtime",
+  "photoBucket": "example-private-photos",
+  "analysisModel": "gpt-5.4-mini",
+  "editModel": "gpt-image-2.5-sunburst"
+}

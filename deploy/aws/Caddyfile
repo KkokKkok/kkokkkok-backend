@@ -1,0 +1,10 @@
+{$API_DOMAIN} {
+	request_body {
+		max_size 11MB
+	}
+	reverse_proxy backend:8080 {
+		transport http {
+			read_timeout 360s
+		}
+	}
+}

@@ -61,3 +61,7 @@ AWS SDK의 기본 자격 증명 체인을 사용합니다. 배포에서는 EC2 �
 저장소 전환은 기존 사진의 자동 이관을 뜻하지 않습니다. 기존 DB의 key가 새 버킷의 동일 prefix에 실제로 존재하도록 파일 복사·무결성 검증을 먼저 해야 합니다. S3와 DB는 단일 트랜잭션이 아니므로 장애 시 고아 객체 정리와 복구는 별도 운영 절차가 필요합니다. 실제 S3/IAM·버전 관리·백업 복구는 AWS 환경에서 검증해야 합니다.
 
 SDK 사용 기준: [AWS SDK for Java 2.x S3 문서](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/examples-s3.html).
+
+## AWS 파일럿 준비
+
+실제 계정 연결 전 작성한 인프라·HTTPS·수동 배포/복구 파일과 담당자 인계 값은 [AWS 파일럿 안내](aws/README.md)를 참고하세요. 현재 실제 AWS 배포를 완료한 상태가 아니며, workflow는 수동·기본 비활성입니다.
