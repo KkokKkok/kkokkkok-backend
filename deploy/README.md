@@ -43,3 +43,21 @@ PostgreSQL 포트는 호스트에 공개하지 않습니다. DB와 사진은 각
 기존 H2 파일을 PostgreSQL로 자동 변환하지 않습니다. 현재 로컬 실제 사진·기록은 그대로 유지하며, 실제 배포에 옮길 데이터는 별도 내보내기/가져오기와 백업 검증이 필요합니다. RDS 연결·권한·백업 복구는 AWS 계정 연결 후 검증합니다.
 
 위 합성 데이터 smoke 검증은 같은 방식으로 실행할 수 있습니다. PostgreSQL 컨테이너와 backend를 모두 교체한 뒤 `verify`로 사진·누적 스냅샷 보존을 확인합니다. 기본 모의 분석 원본 응답의 메모리 저장 제약은 동일합니다.
+
+## 사진 저장소 선택
+
+기본 `ASSET_STORAGE_PROVIDER=local`은 이전과 같은 로컬 volume을 사용합니다. `s3`를 선택하면 API와 DB 형식을 바꾸지 않고 비공개 S3에 저장합니다. 앱은 기존 인증된 `/api/assets/{id}/content`로 사진을 읽으며 버킷 공개 URL을 받지 않습니다.
+
+실제 AWS 계정 연결 후 버킷 이름을 설정하고 `compose.s3.yaml`을 추가합니다. 이 구성 자체는 버킷을 생성하지 않습니다.
+
+```sh
+docker compose --env-file deploy/.env -f deploy/compose.yaml -f deploy/compose.postgres.yaml -f deploy/compose.s3.yaml up -d --build backend
+```
+
+AWS SDK의 기본 자격 증명 체인을 사용합니다. 배포에서는 EC2 역할에 해당 버킷의 `assets/*`만 `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`를 허용하고 버킷 공개 접근 차단과 암호화를 유지합니다. AWS access key를 이미지·앱·저장소에 넣지 않습니다. EC2 역할 접근을 위해 IMDSv2 설정과 컨테이너 hop limit을 실제 환경에서 확인해야 합니다.
+
+로컬 계약 테스트는 가짜 키와 루프백 HTTP 서버만 사용합니다. `ASSET_S3_ENDPOINT`와 `ASSET_S3_PATH_STYLE=true`는 로컬 S3 호환 서버를 사용할 때만 설정하고, 실제 배포에서는 endpoint override를 비웁니다. 업로드는 기존 key를 덮어쓰지 않으며 저장소의 권한·통신 오류를 성공으로 바꾸지 않습니다.
+
+저장소 전환은 기존 사진의 자동 이관을 뜻하지 않습니다. 기존 DB의 key가 새 버킷의 동일 prefix에 실제로 존재하도록 파일 복사·무결성 검증을 먼저 해야 합니다. S3와 DB는 단일 트랜잭션이 아니므로 장애 시 고아 객체 정리와 복구는 별도 운영 절차가 필요합니다. 실제 S3/IAM·버전 관리·백업 복구는 AWS 환경에서 검증해야 합니다.
+
+SDK 사용 기준: [AWS SDK for Java 2.x S3 문서](https://docs.aws.amazon.com/sdk-for-java/latest/developer-guide/examples-s3.html).

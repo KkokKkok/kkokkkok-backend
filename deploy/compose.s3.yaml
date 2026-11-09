@@ -1,0 +1,8 @@
+# Overlay for an already provisioned private S3 bucket. Does not create AWS resources.
+services:
+  backend:
+    environment:
+      ASSET_STORAGE_PROVIDER: s3
+      ASSET_S3_BUCKET: ${ASSET_S3_BUCKET:?Set the existing private bucket name}
+      AWS_REGION: ${AWS_REGION:-ap-northeast-2}
+      ASSET_S3_PREFIX: ${ASSET_S3_PREFIX:-assets/}
