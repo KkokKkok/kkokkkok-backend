@@ -4,4 +4,6 @@ import com.kkokkkok.backend.domain.ImageAsset;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface ImageAssetRepository extends JpaRepository<ImageAsset, UUID> {}
+public interface ImageAssetRepository extends JpaRepository<ImageAsset, UUID> {
+    java.util.List<ImageAsset> findAllByOwnerInstallationIdOrderByCreatedAtDesc(UUID ownerInstallationId);
+}

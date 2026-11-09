@@ -34,6 +34,7 @@ public class ImageAsset {
     private String assetRole;
 
     private UUID parentAssetId;
+    private UUID ownerInstallationId;
 
     @Column(nullable = false)
     private boolean mock;
@@ -83,6 +84,8 @@ public class ImageAsset {
         this.manualLongitude = longitude;
         this.locationStatus = "manual";
     }
+    public void assignOwner(UUID owner) { this.ownerInstallationId = owner; }
+    public UUID getOwnerInstallationId() { return ownerInstallationId; }
     public UUID getId() { return id; }
     public String getContentType() { return contentType; }
     public long getSizeBytes() { return sizeBytes; }

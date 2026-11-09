@@ -17,9 +17,10 @@ public class InspectionService {
     private final InspectionConverter converter;
     private final InspectionStore store;
     private final ImageAssetService assets;
+    private final PilotOwnership ownership;
     public InspectionService(InspectionValidator validator,AnalysisClient client,InspectionConverter converter,
-                             InspectionStore store,ImageAssetService assets) {
-        this.validator=validator; this.client=client; this.converter=converter; this.store=store; this.assets=assets;
+                             InspectionStore store,ImageAssetService assets,PilotOwnership ownership) {
+        this.validator=validator; this.client=client; this.converter=converter; this.store=store; this.assets=assets; this.ownership=ownership;
     }
     public InspectionResponse create(InspectionRequest request,UUID key) {
         if (request == null || request.assetId() == null) throw new ApiFailure(400,"INVALID_ASSET_ID","분석할 사진 ID를 확인해 주세요.");
@@ -33,6 +34,11 @@ public class InspectionService {
         return converter.withAssetId(result,input.assetId());
     }
     public InspectionResponse get(UUID id) {
+        if (ownership.current() != null) {
+            UUID assetId = store.assetIdFor(id);
+            if (assetId == null) throw new ApiFailure(404,"INSPECTION_NOT_FOUND","분석 작업을 찾을 수 없습니다.");
+            assets.get(assetId);
+        }
         var result=converter.fromNode(client.get(id),id);
         store.refreshed(result);
         return converter.withAssetId(result,store.assetIdFor(result.inspectionId()));

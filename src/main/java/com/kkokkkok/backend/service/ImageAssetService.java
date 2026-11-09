@@ -19,12 +19,14 @@ public class ImageAssetService {
     private final ImageAssetRepository repository;
     private final AssetStorage storage;
     private final ImageMetadataExtractor metadataExtractor;
+    private final PilotOwnership ownership;
 
     public ImageAssetService(ImageAssetRepository repository, AssetStorage storage,
-                             ImageMetadataExtractor metadataExtractor) {
+                             ImageMetadataExtractor metadataExtractor, PilotOwnership ownership) {
         this.repository = repository;
         this.storage = storage;
         this.metadataExtractor = metadataExtractor;
+        this.ownership = ownership;
     }
 
     @Transactional
@@ -40,9 +42,11 @@ public class ImageAssetService {
         UUID id = UUID.randomUUID();
         String key = storage.save(id, bytes, contentType);
         try {
-            return AssetResponse.from(repository.save(new ImageAsset(id, contentType, bytes.length, key,
+            ImageAsset asset = new ImageAsset(id, contentType, bytes.length, key,
                     metadata.latitude(), metadata.longitude(), metadata.capturedAt(), metadata.locationStatus(),
-                    safeLabels, "original", null, false)));
+                    safeLabels, "original", null, false);
+            asset.assignOwner(ownership.current());
+            return AssetResponse.from(repository.save(asset));
         } catch (RuntimeException e) {
             storage.delete(key);
             throw e;
@@ -51,7 +55,9 @@ public class ImageAssetService {
 
     @Transactional(readOnly = true)
     public List<AssetResponse> list() {
-        return repository.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream().map(AssetResponse::from).toList();
+        UUID owner = ownership.current();
+        return (owner == null ? repository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"))
+                : repository.findAllByOwnerInstallationIdOrderByCreatedAtDesc(owner)).stream().map(AssetResponse::from).toList();
     }
 
     @Transactional(readOnly = true)
@@ -93,9 +99,11 @@ public class ImageAssetService {
         UUID id = UUID.randomUUID();
         String key = storage.save(id, bytes, contentType);
         try {
-            return AssetResponse.from(repository.save(new ImageAsset(id, contentType, bytes.length, key,
+            ImageAsset asset = new ImageAsset(id, contentType, bytes.length, key,
                     metadata.latitude(), metadata.longitude(), metadata.capturedAt(), metadata.locationStatus(),
-                    source.getLabels(), "edited", sourceAssetId, mock)));
+                    source.getLabels(), "edited", sourceAssetId, mock);
+            asset.assignOwner(source.getOwnerInstallationId());
+            return AssetResponse.from(repository.save(asset));
         } catch (RuntimeException e) {
             storage.delete(key);
             throw e;
@@ -110,7 +118,9 @@ public class ImageAssetService {
     }
 
     private ImageAsset find(UUID id) {
-        return repository.findById(id).orElseThrow(() -> new ApiFailure(404, "ASSET_NOT_FOUND", "사진을 찾을 수 없습니다."));
+        var asset = repository.findById(id).orElseThrow(() -> new ApiFailure(404, "ASSET_NOT_FOUND", "사진을 찾을 수 없습니다."));
+        ownership.require(asset.getOwnerInstallationId());
+        return asset;
     }
 
     private StoredAsset storedAsset(ImageAsset asset) {

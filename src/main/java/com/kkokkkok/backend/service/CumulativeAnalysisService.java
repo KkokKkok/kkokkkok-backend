@@ -98,6 +98,7 @@ public class CumulativeAnalysisService {
     @Transactional
     public Map<String, Object> linkAsset(UUID installationId, UUID placeId, UUID assetId) {
         requirePlace(installationId, placeId);
+        assetService.get(assetId);
         ImageAsset asset = assets.findById(assetId)
                 .orElseThrow(() -> new ApiFailure(404, "ASSET_NOT_FOUND", "사진을 찾을 수 없습니다."));
         links.findByPlaceIdAndAssetId(placeId, assetId).orElseGet(() -> links.save(new PlaceAssetLink(placeId, assetId)));
@@ -107,6 +108,7 @@ public class CumulativeAnalysisService {
     @Transactional
     public void unlinkAsset(UUID installationId, UUID placeId, UUID assetId) {
         requirePlace(installationId, placeId);
+        assetService.get(assetId);
         links.deleteByPlaceIdAndAssetId(placeId, assetId);
     }
 
@@ -114,7 +116,7 @@ public class CumulativeAnalysisService {
     public List<Map<String, Object>> listPlaceAssets(UUID installationId, UUID placeId) {
         requirePlace(installationId, placeId);
         return links.findAllByPlaceIdOrderByCreatedAtDesc(placeId).stream()
-                .map(link -> assets.findById(link.getAssetId()).map(this::assetView).orElse(null))
+                .map(link -> { assetService.get(link.getAssetId()); return assets.findById(link.getAssetId()).map(this::assetView).orElse(null); })
                 .filter(java.util.Objects::nonNull).toList();
     }
 
@@ -123,6 +125,7 @@ public class CumulativeAnalysisService {
         if (assetIds.isEmpty() || assetIds.size() > 100 || assetIds.stream().distinct().count() != assetIds.size())
             throw new ApiFailure(400, "INVALID_CUMULATIVE_REQUEST", "1~100장의 서로 다른 사진을 선택해 주세요.");
 
+        assetIds.forEach(assetService::get);
         List<PhotoEvidence> photos = new ArrayList<>();
         List<Map<String, Object>> excluded = new ArrayList<>();
         for (UUID assetId : assetIds) {
