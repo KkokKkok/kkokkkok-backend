@@ -7,4 +7,5 @@ import java.util.UUID;
 public interface AnalysisClient {
     Map<String,Object> create(InspectionSubmission submission,UUID requestId);
     Map<String,Object> get(UUID inspectionId);
+    default void delete(UUID inspectionId) { throw new UnsupportedOperationException("Analysis deletion is not configured"); }
 }

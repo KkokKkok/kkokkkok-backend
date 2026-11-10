@@ -7,6 +7,7 @@ public interface AssetStorage {
     String save(UUID id, byte[] bytes, String contentType);
     byte[] read(String key);
     void delete(String key);
+    default void purge(String key) { delete(key); }
 
     static String key(UUID id, String contentType) {
         return id + switch (contentType) {

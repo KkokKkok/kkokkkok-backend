@@ -31,7 +31,7 @@ public class ProfileService {
         long checks = inspections.findAll().stream().filter(i -> originalIds.contains(i.getAssetId()) && "completed".equals(i.getStatus())).count();
         long editCount = edits.findAll().stream().filter(e -> originalIds.contains(e.getSourceAssetId()) && "completed".equals(e.getStatus())).count();
         long cumulativeCount = cumulative.findAll().stream().filter(r -> placeIds.contains(r.getPlaceId())).count();
-        return Map.of("displayName", "테스터", "photoChecks", checks, "protectionEdits", editCount,
+        return Map.of("dataScope", authenticated == null ? "local_shared" : "installation", "displayName", "테스터", "photoChecks", checks, "protectionEdits", editCount,
                 "cumulativeChecks", cumulativeCount,
                 "sensitivePlaces", ownedPlaces.stream().map(p -> Map.of("name",p.getName(),"category",p.getCategory())).toList(),
                 "storagePolicy", Map.of("autoDeleteOriginals",false,"retention","until_user_deletes"));

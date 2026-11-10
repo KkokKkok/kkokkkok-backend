@@ -36,6 +36,8 @@ public class StubAnalysisClient implements AnalysisClient {
         return copyResult(result);
     }
 
+    @Override public void delete(UUID id) { results.remove(id); }
+
     private Map<String, Object> queuedResult(UUID id) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("inspectionId", id.toString());
