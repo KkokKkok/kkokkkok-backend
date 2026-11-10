@@ -343,7 +343,14 @@ Resources:
             - s3:PutObject
             - s3:GetObject
             - s3:DeleteObject
+            - s3:DeleteObjectVersion
             Resource: !Sub '${Photos.Arn}/assets/*'
+          - Effect: Allow
+            Action: s3:ListBucketVersions
+            Resource: !GetAtt 'Photos.Arn'
+            Condition:
+              StringLike:
+                s3:prefix: 'assets/*'
   AppProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:

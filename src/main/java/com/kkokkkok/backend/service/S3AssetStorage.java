@@ -49,4 +49,19 @@ public final class S3AssetStorage implements AssetStorage {
             throw new IllegalStateException("Asset storage operation failed", failure);
         }
     }
+    /** User-requested deletion removes historical versions as well as delete markers. */
+    @Override public void purge(String key) {
+        String objectKey = prefix + AssetStorage.validateKey(key);
+        try {
+            while (true) {
+                var page = client.listObjectVersions(r -> r.bucket(bucket).prefix(objectKey));
+                var versions = page.versions().stream().filter(v -> v.key().equals(objectKey)).toList();
+                var markers = page.deleteMarkers().stream().filter(v -> v.key().equals(objectKey)).toList();
+                if (versions.isEmpty() && markers.isEmpty()) break;
+                for (var v : versions) client.deleteObject(r -> r.bucket(bucket).key(objectKey).versionId(v.versionId()));
+                for (var v : markers) client.deleteObject(r -> r.bucket(bucket).key(objectKey).versionId(v.versionId()));
+            }
+        } catch (RuntimeException failure) { throw new IllegalStateException("Asset purge failed", failure); }
+    }
+
 }

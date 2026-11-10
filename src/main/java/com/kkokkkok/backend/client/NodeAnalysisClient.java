@@ -39,6 +39,10 @@ public class NodeAnalysisClient implements AnalysisClient {
             .contentType(MediaType.MULTIPART_FORM_DATA).body(parts).retrieve().body(BODY));
     }
     public Map<String,Object> get(UUID id) {return call(()->client.get().uri("/api/inspections/{id}",id).retrieve().body(BODY));}
+    public void delete(UUID id) {
+        try { call(() -> { client.delete().uri("/api/inspections/{id}",id).retrieve().toBodilessEntity(); return Map.of(); }); }
+        catch(ApiFailure failure) { if(failure.status != 404) throw failure; }
+    }
     private Map<String,Object> call(Supplier<Map<String,Object>> action) {
         if(!configured) throw new ApiFailure(503,"ANALYSIS_NOT_CONFIGURED","분석 서버 주소가 설정되지 않았습니다.");
         try {return action.get();}

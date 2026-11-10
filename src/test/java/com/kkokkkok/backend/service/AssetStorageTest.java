@@ -104,4 +104,37 @@ class AssetStorageTest {
             assertEquals(calls.get(), signed.get());
         } finally { server.stop(0); }
     }
+    @Test void purgeDeletesVersionsAndMarkersWithoutDeletingAnotherKey() throws Exception {
+        String key=UUID.randomUUID()+".png", objectKey="assets/"+key;
+        var remaining=new java.util.HashSet<>(java.util.Set.of("v1","v2","marker"));
+        var server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
+        server.createContext("/",exchange -> {
+            byte[] response=new byte[0]; int status=200;
+            if(exchange.getRequestMethod().equals("GET")) {
+                StringBuilder xml=new StringBuilder("<ListVersionsResult xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\"><IsTruncated>false</IsTruncated>");
+                for(String version:remaining) {
+                    String tag=version.equals("marker") ? "DeleteMarker" : "Version";
+                    xml.append("<").append(tag).append("><Key>").append(objectKey).append("</Key><VersionId>").append(version)
+                       .append("</VersionId><IsLatest>false</IsLatest></").append(tag).append(">");
+                }
+                xml.append("<Version><Key>assets/another.png</Key><VersionId>other</VersionId></Version></ListVersionsResult>");
+                response=xml.toString().getBytes();
+            } else if(exchange.getRequestMethod().equals("DELETE") && exchange.getRequestURI().getPath().endsWith("/"+objectKey)) {
+                String query=exchange.getRequestURI().getQuery();
+                remaining.remove(query.substring("versionId=".length())); status=204;
+            } else status=400;
+            exchange.sendResponseHeaders(status,response.length==0 ? -1 : response.length);
+            if(response.length>0) exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try(S3Client client=S3Client.builder().region(Region.AP_NORTHEAST_2)
+                .endpointOverride(URI.create("http://127.0.0.1:"+server.getAddress().getPort())).forcePathStyle(true)
+                .httpClientBuilder(UrlConnectionHttpClient.builder())
+                .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create("synthetic","synthetic"))).build()) {
+            var storage=new S3AssetStorage(client,"synthetic-bucket","assets/");
+            storage.purge(key); assertTrue(remaining.isEmpty()); storage.purge(key);
+        } finally { server.stop(0); }
+    }
+
 }
