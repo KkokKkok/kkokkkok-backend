@@ -37,6 +37,7 @@ public class AuthService {
     private final SensitivePlaceRepository places;
     private final ImageAssetRepository assets;
     private final TransactionTemplate transaction;
+    private final TermsService terms;
     private final Duration accessLifetime;
     private final Duration refreshLifetime;
     private final boolean linkInstallationData;
@@ -44,13 +45,13 @@ public class AuthService {
 
     public AuthService(KakaoAuthClient kakao, UserAccountRepository users, SocialAccountRepository socialAccounts,
                        AuthSessionRepository sessions, SensitivePlaceRepository places, ImageAssetRepository assets,
-                       PlatformTransactionManager manager,
+                       PlatformTransactionManager manager, TermsService terms,
                        @Value("${auth.access-token-minutes:60}") long accessMinutes,
                        @Value("${auth.refresh-token-days:30}") long refreshDays,
                        @Value("${auth.link-installation-data:false}") boolean linkInstallationData) {
         if (accessMinutes < 1 || refreshDays < 1) throw new IllegalArgumentException("Token lifetimes must be positive");
         this.kakao = kakao; this.users = users; this.socialAccounts = socialAccounts; this.sessions = sessions;
-        this.places = places; this.assets = assets; this.transaction = new TransactionTemplate(manager);
+        this.places = places; this.assets = assets; this.transaction = new TransactionTemplate(manager); this.terms = terms;
         this.accessLifetime = Duration.ofMinutes(accessMinutes); this.refreshLifetime = Duration.ofDays(refreshDays);
         this.linkInstallationData = linkInstallationData;
     }
@@ -91,6 +92,8 @@ public class AuthService {
         var response = tokens(access, refresh, session);
         response.put("user", user(user));
         response.put("newUser", newUser);
+        response.put("termsAccepted", terms.accepted(user.getId()));
+        response.put("termsVersion", terms.currentVersion());
         response.put("installationDataLinked", linked);
         return response;
     }
@@ -114,6 +117,8 @@ public class AuthService {
             sessions.saveAndFlush(session);
             var response = tokens(access, refresh, session);
             response.put("user", user(users.findById(session.getUserId()).orElseThrow(AuthService::unauthorized)));
+            response.put("termsAccepted", terms.accepted(session.getUserId()));
+            response.put("termsVersion", terms.currentVersion());
             return response;
         });
     }
@@ -135,14 +140,17 @@ public class AuthService {
     }
 
     public Map<String, Object> me(UUID userId) {
-        return user(users.findById(userId).orElseThrow(AuthService::unauthorized));
+        var map = user(users.findById(userId).orElseThrow(AuthService::unauthorized));
+        map.put("termsAccepted", terms.accepted(userId));
+        map.put("termsVersion", terms.currentVersion());
+        return map;
     }
 
     public String displayName(UUID userId) {
         return users.findById(userId).map(UserAccount::getDisplayName).orElse(null);
     }
 
-    private static Map<String, Object> user(UserAccount user) {
+    private static LinkedHashMap<String, Object> user(UserAccount user) {
         var map = new LinkedHashMap<String, Object>();
         map.put("userId", user.getId());
         map.put("displayName", user.getDisplayName());

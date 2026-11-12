@@ -3,6 +3,7 @@ package com.kkokkkok.backend.config;
 import com.kkokkkok.backend.apiPayload.exception.ApiFailure;
 import com.kkokkkok.backend.service.AuthService;
 import com.kkokkkok.backend.service.PilotOwnership;
+import com.kkokkkok.backend.service.TermsService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -32,11 +33,12 @@ public class AuthAccessFilter extends OncePerRequestFilter {
     private static final Set<String> PUBLIC = Set.of("POST /api/auth/kakao", "POST /api/auth/refresh");
     private final boolean enabled;
     private final AuthService auth;
+    private final TermsService terms;
 
     public AuthAccessFilter(@Value("${app.auth.enabled:false}") boolean enabled,
-                            @Value("${app.pilot.enabled:false}") boolean pilotEnabled, AuthService auth) {
+                            @Value("${app.pilot.enabled:false}") boolean pilotEnabled, AuthService auth, TermsService terms) {
         if (enabled && pilotEnabled) throw new IllegalStateException("app.auth.enabled and app.pilot.enabled cannot both be true");
-        this.enabled = enabled; this.auth = auth;
+        this.enabled = enabled; this.auth = auth; this.terms = terms;
     }
 
     @Override
@@ -54,6 +56,9 @@ public class AuthAccessFilter extends OncePerRequestFilter {
         if (PUBLIC.contains(req.getMethod() + " " + path)) { chain.doFilter(req, res); return; }
         try {
             var session = auth.authenticate(req.getHeader("Authorization"));
+            // Data APIs require consent to the current terms; account endpoints (/api/auth/*) stay available.
+            if (!path.startsWith("/api/auth/") && !terms.accepted(session.getUserId()))
+                throw new ApiFailure(403, "TERMS_REQUIRED", "약관에 동의한 뒤 이용할 수 있어요.");
             String owner = session.getUserId().toString();
             req.setAttribute(PilotOwnership.ATTRIBUTE, session.getUserId());
             req.setAttribute(SESSION_ATTRIBUTE, session.getId());

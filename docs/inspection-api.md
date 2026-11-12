@@ -267,7 +267,23 @@ Content-Type: application/json
 - 이후 모든 `/api` 요청: `Authorization: Bearer kka_…`. 공유 앱 키(`X-App-Api-Key`)는 사용하지 않습니다.
 - `POST /api/auth/refresh` `{"refreshToken":"kkr_…"}`: 같은 응답 형식으로 access·refresh 토큰을 함께 교체합니다. 이전 refresh 토큰은 다시 쓸 수 없습니다. 교체된 refresh 토큰이 다시 오면 탈취로 보고 해당 세션 전체를 끝냅니다.
 - `POST /api/auth/logout`: 현재 세션을 끝내고 204를 반환합니다. access·refresh 모두 무효가 됩니다.
-- `GET /api/auth/me`: `{"userId":"…","displayName":"…"}`
+- `GET /api/auth/me`: `{"userId":"…","displayName":"…","termsAccepted":true,"termsVersion":"2026-11-13"}`
+- 로그인·갱신 응답에도 `termsAccepted`, `termsVersion`이 포함됩니다.
+
+**약관 동의(서버 저장).** 현재 약관 버전(`AUTH_TERMS_VERSION`, 기본 `2026-11-13`)에 필수 항목을 동의하지 않은 사용자는 `/api/auth/*` 외 모든 API에서 403 `TERMS_REQUIRED`를 받습니다. 동의 기록은 덮어쓰지 않고 이력으로 쌓입니다. 약관 문구가 바뀌면 버전을 올려 다시 동의를 받습니다.
+
+```http
+POST /api/auth/terms
+Authorization: Bearer kka_…
+
+{"termsVersion":"2026-11-13","serviceTerms":true,"privacy":true,"location":true,"marketing":false}
+```
+
+```json
+{"currentVersion":"2026-11-13","accepted":true,"agreedVersion":"2026-11-13","marketing":false,"agreedAt":"2026-11-13T04:00:00Z"}
+```
+
+`serviceTerms`(서비스 이용약관)·`privacy`(개인정보 수집·이용)·`location`(위치정보 이용)은 필수, `marketing`(알림 수신)은 선택입니다. 필수 미동의는 400 `REQUIRED_TERMS_NOT_ACCEPTED`, 앱이 보낸 버전이 현재 버전과 다르면 409 `TERMS_VERSION_MISMATCH`입니다. `GET /api/auth/terms`는 같은 형식으로 현재 동의 상태를 반환합니다.
 - 기본 수명은 access 60분(`AUTH_ACCESS_TOKEN_MINUTES`), refresh 30일(`AUTH_REFRESH_TOKEN_DAYS`)입니다. DB에는 토큰의 SHA-256 해시만 저장합니다.
 - 오류: 401 `SOCIAL_TOKEN_INVALID`(카카오 토큰 무효·다른 앱), 401 `AUTH_REQUIRED`(서비스 토큰 없음·만료·로그아웃), 502 `SOCIAL_AUTH_UNAVAILABLE`, 503 `AUTH_NOT_CONFIGURED`(`KAKAO_APP_ID` 미설정), 504 `SOCIAL_AUTH_TIMEOUT`.
 

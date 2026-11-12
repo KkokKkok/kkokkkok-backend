@@ -14,3 +14,9 @@ create table auth_sessions (
  refresh_expires_at timestamptz(6) not null, revoked boolean not null, created_at timestamptz(6) not null
 );
 create index ix_auth_sessions_previous_refresh on auth_sessions(previous_refresh_token_hash);
+create table terms_agreements (
+ id uuid primary key, user_id uuid not null references user_accounts(id), terms_version varchar(40) not null,
+ service_terms boolean not null, privacy boolean not null, location boolean not null, marketing boolean not null,
+ agreed_at timestamptz(6) not null
+);
+create index ix_terms_user_agreed on terms_agreements(user_id, agreed_at);

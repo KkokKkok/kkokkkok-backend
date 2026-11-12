@@ -3,6 +3,8 @@ package com.kkokkkok.backend.web.controller;
 import com.kkokkkok.backend.config.AuthAccessFilter;
 import com.kkokkkok.backend.service.AuthService;
 import com.kkokkkok.backend.service.PilotOwnership;
+import com.kkokkkok.backend.service.TermsService;
+import com.kkokkkok.backend.web.dto.TermsAgreementRequest;
 import com.kkokkkok.backend.web.dto.KakaoLoginRequest;
 import com.kkokkkok.backend.web.dto.RefreshTokenRequest;
 import jakarta.servlet.http.HttpServletRequest;
@@ -21,7 +23,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
     private final AuthService auth;
     private final PilotOwnership ownership;
-    public AuthController(AuthService auth, PilotOwnership ownership) { this.auth = auth; this.ownership = ownership; }
+    private final TermsService terms;
+    public AuthController(AuthService auth, PilotOwnership ownership, TermsService terms) {
+        this.auth = auth; this.ownership = ownership; this.terms = terms;
+    }
+
+    @GetMapping("/terms")
+    public Map<String, Object> termsStatus() { return terms.status(ownership.current()); }
+
+    @PostMapping("/terms")
+    public Map<String, Object> agree(@Valid @RequestBody TermsAgreementRequest request) {
+        return terms.agree(ownership.current(), request);
+    }
 
     @PostMapping("/kakao")
     public Map<String, Object> kakao(@Valid @RequestBody KakaoLoginRequest request) {

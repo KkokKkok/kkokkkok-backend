@@ -670,6 +670,42 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/AuthUser' }
         '401': { description: AUTH_REQUIRED }
+  /api/auth/terms:
+    get:
+      tags: [로그인]
+      summary: 현재 약관 동의 상태
+      responses:
+        '200':
+          description: 동의 상태
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TermsStatus' }
+        '401': { description: AUTH_REQUIRED }
+    post:
+      tags: [로그인]
+      summary: 약관 동의 기록 (필수 3개 + 선택 알림 수신)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [termsVersion, serviceTerms, privacy, location, marketing]
+              properties:
+                termsVersion: { type: string, example: '2026-11-13' }
+                serviceTerms: { type: boolean }
+                privacy: { type: boolean }
+                location: { type: boolean }
+                marketing: { type: boolean }
+      responses:
+        '200':
+          description: 저장된 동의 상태
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TermsStatus' }
+        '400': { description: REQUIRED_TERMS_NOT_ACCEPTED }
+        '401': { description: AUTH_REQUIRED }
+        '409': { description: TERMS_VERSION_MISMATCH }
   /actuator/health:
     get:
       summary: Spring 서버 상태
@@ -786,6 +822,16 @@ components:
         user: { $ref: '#/components/schemas/AuthUser' }
         newUser: { type: boolean }
         installationDataLinked: { type: boolean }
+        termsAccepted: { type: boolean, description: 현재 약관 버전 필수 항목 동의 여부. false면 데이터 API는 403 TERMS_REQUIRED }
+        termsVersion: { type: string }
+    TermsStatus:
+      type: object
+      properties:
+        currentVersion: { type: string }
+        accepted: { type: boolean }
+        agreedVersion: { type: string, nullable: true }
+        marketing: { type: boolean }
+        agreedAt: { type: string, format: date-time, nullable: true }
     Error:
       type: object
       required: [error]

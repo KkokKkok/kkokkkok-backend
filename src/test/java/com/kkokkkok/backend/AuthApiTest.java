@@ -89,6 +89,7 @@ class AuthApiTest {
     }
 
     @Test void refreshRotatesTokensAndReuseRevokesSession() throws Exception {
+        signedUp("kakao-token-a");
         var login = login("kakao-token-a", null, 200);
         String oldAccess = "Bearer " + field(login, "accessToken"), oldRefresh = field(login, "refreshToken");
         var refreshed = refresh(oldRefresh, 200);
@@ -111,8 +112,8 @@ class AuthApiTest {
     }
 
     @Test void usersCannotReadChangeOrDeleteEachOthersData() throws Exception {
-        String a = "Bearer " + field(login("kakao-token-a", null, 200), "accessToken");
-        String b = "Bearer " + field(login("kakao-token-b", null, 200), "accessToken");
+        String a = signedUp("kakao-token-a");
+        String b = signedUp("kakao-token-b");
         String asset = field(call(multipart("/api/assets").file(new MockMultipartFile("photo", "synthetic.jpg", "image/jpeg",
                 new byte[]{(byte) 255, (byte) 216, (byte) 255, 0})), a, 201), "assetId");
         String inspection = field(call(post("/api/inspections").header("Idempotency-Key", UUID.randomUUID())
@@ -149,8 +150,29 @@ class AuthApiTest {
         places.saveAndFlush(new SensitivePlace(UUID.randomUUID(), otherInstallation, "다른 기기 장소", "home", 37.6, 127.1, 300));
         var login = login("kakao-token-c", installation, 200);
         assertEquals(Boolean.TRUE, JsonPath.read(body(login), "$.installationDataLinked"));
-        var list = body(call(get("/api/places"), "Bearer " + field(login, "accessToken"), 200));
+        String access = "Bearer " + field(login, "accessToken");
+        call(post("/api/auth/terms").contentType(MediaType.APPLICATION_JSON).content(AGREE), access, 200);
+        var list = body(call(get("/api/places"), access, 200));
         assertEquals(List.of("합성 집"), JsonPath.read(list, "$[*].name"));
+    }
+
+    @Test void dataApisRequireServerSideTermsConsent() throws Exception {
+        var login = login("kakao-token-b", null, 200);
+        String access = "Bearer " + field(login, "accessToken");
+        call(get("/api/assets"), access, 403);
+        assertEquals("TERMS_REQUIRED", JsonPath.read(body(call(get("/api/places"), access, 403)), "$.error.code"));
+        assertEquals(Boolean.FALSE, JsonPath.read(body(call(get("/api/auth/terms"), access, 200)), "$.accepted"));
+        call(post("/api/auth/terms").contentType(MediaType.APPLICATION_JSON)
+                .content(AGREE.replace("\"location\":true", "\"location\":false")), access, 400);
+        call(post("/api/auth/terms").contentType(MediaType.APPLICATION_JSON)
+                .content(AGREE.replace("2026-11-13", "2020-01-01")), access, 409);
+        var agreed = call(post("/api/auth/terms").contentType(MediaType.APPLICATION_JSON)
+                .content(AGREE.replace("\"marketing\":false", "\"marketing\":true")), access, 200);
+        assertEquals(Boolean.TRUE, JsonPath.read(body(agreed), "$.accepted"));
+        assertEquals(Boolean.TRUE, JsonPath.read(body(agreed), "$.marketing"));
+        call(get("/api/assets"), access, 200);
+        assertEquals(Boolean.TRUE, JsonPath.read(body(login("kakao-token-b", null, 200)), "$.termsAccepted"));
+        assertEquals(Boolean.TRUE, JsonPath.read(body(call(get("/api/auth/me"), access, 200)), "$.termsAccepted"));
     }
 
     @Test void kakaoIsNotCalledForMalformedRefreshOrUnauthenticatedCalls() throws Exception {
@@ -158,6 +180,15 @@ class AuthApiTest {
         refresh("kkr_short", 401);
         call(get("/api/profile"), null, 401);
         assertEquals(before, KAKAO_CALLS.get());
+    }
+
+    private static final String AGREE = "{\"termsVersion\":\"2026-11-13\",\"serviceTerms\":true,\"privacy\":true,\"location\":true,\"marketing\":false}";
+
+    /** Logs in and agrees to the current terms; returns the Authorization header value. */
+    private String signedUp(String kakaoToken) throws Exception {
+        String access = "Bearer " + field(login(kakaoToken, null, 200), "accessToken");
+        call(post("/api/auth/terms").contentType(MediaType.APPLICATION_JSON).content(AGREE), access, 200);
+        return access;
     }
 
     private MvcResult login(String kakaoToken, UUID installation, int expected) throws Exception {
