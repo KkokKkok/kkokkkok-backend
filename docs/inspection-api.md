@@ -249,6 +249,31 @@ stub은 즉시 처리하므로 성공 시 `201 Created`를 반환합니다. 요�
 ```
 
 검색어는 공백 제거 후 1~100자, 좌표는 위도 -90~90·경도 -180~180입니다. 오류: 400 `INVALID_QUERY`·`INVALID_COORDINATE`, 429 `GEOCODING_RATE_LIMITED`, 502 `GEOCODING_UNAVAILABLE`·`INVALID_GEOCODING_RESPONSE`, 503 `GEOCODING_NOT_CONFIGURED`(키 미설정), 504 `GEOCODING_TIMEOUT`. 검색어·좌표·카카오 응답 본문은 로그와 오류 메시지에 남기지 않으며 응답은 `Cache-Control: no-store`입니다. 다른 `/api` 요청과 같은 앱 키·파일럿 인증을 적용합니다.
+## 로그인 API (카카오, 로그인 모드)
+
+`AUTH_ENABLED=true`(`app.auth.enabled`)일 때 사용합니다. 앱이 카카오 SDK로 받은 사용자 access token을 서버가 카카오 API(`/v1/user/access_token_info`, `/v2/user/me`)로 검증합니다. 토큰의 `app_id`가 서버 설정 `KAKAO_APP_ID`와 다르면 거부합니다. 카카오 토큰은 저장하거나 로그에 남기지 않습니다. 서비스 사용자를 만들거나 찾은 뒤 꼭꼭 자체 토큰을 발급합니다. 기본·`local`·`pilot` 모드에서는 `/api/auth/*`가 404이며 기존 동작이 그대로입니다. `pilot`과 함께 켜면 서버가 시작되지 않습니다.
+
+```http
+POST /api/auth/kakao
+Content-Type: application/json
+
+{"accessToken":"카카오 SDK의 사용자 access token","installationId":"11111111-1111-4111-8111-111111111111"}
+```
+
+```json
+{"tokenType":"Bearer","accessToken":"kka_…","accessTokenExpiresAt":"2026-11-13T05:00:00Z","refreshToken":"kkr_…","refreshTokenExpiresAt":"2026-12-13T04:00:00Z","user":{"userId":"22222222-2222-4222-8222-222222222222","displayName":"합성 사용자"},"newUser":true,"installationDataLinked":false}
+```
+
+- 이후 모든 `/api` 요청: `Authorization: Bearer kka_…`. 공유 앱 키(`X-App-Api-Key`)는 사용하지 않습니다.
+- `POST /api/auth/refresh` `{"refreshToken":"kkr_…"}`: 같은 응답 형식으로 access·refresh 토큰을 함께 교체합니다. 이전 refresh 토큰은 다시 쓸 수 없습니다. 교체된 refresh 토큰이 다시 오면 탈취로 보고 해당 세션 전체를 끝냅니다.
+- `POST /api/auth/logout`: 현재 세션을 끝내고 204를 반환합니다. access·refresh 모두 무효가 됩니다.
+- `GET /api/auth/me`: `{"userId":"…","displayName":"…"}`
+- 기본 수명은 access 60분(`AUTH_ACCESS_TOKEN_MINUTES`), refresh 30일(`AUTH_REFRESH_TOKEN_DAYS`)입니다. DB에는 토큰의 SHA-256 해시만 저장합니다.
+- 오류: 401 `SOCIAL_TOKEN_INVALID`(카카오 토큰 무효·다른 앱), 401 `AUTH_REQUIRED`(서비스 토큰 없음·만료·로그아웃), 502 `SOCIAL_AUTH_UNAVAILABLE`, 503 `AUTH_NOT_CONFIGURED`(`KAKAO_APP_ID` 미설정), 504 `SOCIAL_AUTH_TIMEOUT`.
+
+**데이터 소유권.** 로그인 모드에서는 사용자 ID가 데이터 소유자입니다. 사진은 업로드한 사용자에게 속하고 검사·다량 검사·편집·수정본은 원본 사진의 소유권을 따릅니다. 민감 장소·누적 기록·마이 통계·전체 삭제는 사용자 ID로 구분합니다. 서버는 클라이언트가 보낸 `X-Installation-Id`를 무시하고 인증된 사용자 ID로 바꿉니다. 다른 사용자의 항목은 존재 여부를 숨기도록 404로 응답합니다.
+
+**기존 개발 데이터 연결.** `AUTH_LINK_INSTALLATION_DATA=true`일 때만 동작하는 개발용 이관입니다. 로그인 요청의 `installationId`로 저장된 민감 장소와 그 설치가 소유한 사진(파일럿 모드에서 업로드한 사진)을 로그인한 사용자에게 옮깁니다. 누적 기록은 장소를 따라갑니다. 소유자 없이 저장된 기존 `local` 모드 사진·검사·편집은 연결하지 않고 보존하며, 로그인 모드에서는 보이지 않습니다. 설치 ID는 인증 값이 아니므로 실제 배포에서는 이 옵션을 끕니다.
 
 ## 오류
 
