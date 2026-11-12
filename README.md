@@ -40,6 +40,7 @@ $env:NODE_ANALYSIS_API_KEY = 'Node와-합의한-비밀키'
 - `GET /api/inspections?assetId={id}`: 사진 한 장의 단독 분석 이력 조회
 - `POST /api/inspection-batches`, `GET /api/inspection-batches/{batchId}`: 여러 사진을 각각 독립적으로 분석하고 묶음·사진별 상태 조회
 - `POST /api/edits`, `GET /api/edits/{editId}`: 분석 단서 선택과 모의 보호 편집 결과 조회
+- `GET /api/geocoding/search`, `GET /api/geocoding/reverse`: 지도 화면용 주소·장소 검색과 좌표의 주소 조회 (서버의 `KAKAO_REST_API_KEY` 필요, [위치 검색 API](docs/inspection-api.md#위치-검색-api-카카오-로컬))
 - `GET /actuator/health`: Spring 서버 상태 (Node 가용성을 뜻하지 않음)
 
 분석 시작 요청은 `{"assetId":"..."}` JSON과 `Idempotency-Key` 헤더를 사용합니다. 기본 stub은 첫 응답에서 `queued`, 조회 시 `completed`와 합성 단서를 반환합니다. 이 결과는 실제 사진 분석이 아니며 `mock: true`로 표시합니다.

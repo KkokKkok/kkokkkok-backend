@@ -235,6 +235,21 @@ stub은 즉시 처리하므로 성공 시 `201 Created`를 반환합니다. 요�
 
 수정 자산은 동일한 분석 드라이버로 재검사되고, 최초 응답에는 재검사 ID와 마지막으로 확인된 상태가 포함됩니다. 최신 상태·결과는 `GET /api/inspections/{verificationInspectionId}`에서 조회합니다. `GET /api/edits/{editId}`는 편집 기록을 다시 반환합니다. 같은 idempotency key와 같은 입력은 기존 작업을 반환하고, 다른 입력은 409입니다. 모의 수정본에는 원본과 같은 이미지 바이트가 있을 수 있으므로 `mock: true`인 결과를 보호된 사진으로 사용하면 안 됩니다.
 
+## 위치 검색 API (카카오 로컬)
+
+장소 추가와 EXIF 없는 사진의 촬영 위치 입력 화면에서 사용자가 입력한 주소·장소 이름을 지도 좌표로 바꿉니다. 서버가 `KAKAO_REST_API_KEY`로 [카카오 로컬 API](https://developers.kakao.com/docs/latest/ko/local/dev-guide)를 호출하며 키는 앱에 전달하지 않습니다. 사진 픽셀이나 분석 결과로 위치를 추정하지 않으며 분석 파이프라인과 연결하지 않습니다.
+
+- `GET /api/geocoding/search?query=꼭꼭로 12`: 주소 검색(`type: address`) 결과를 먼저, 키워드 장소 검색(`type: place`) 결과를 다음에 각각 최대 10개 반환합니다. 결과가 없으면 `results: []`입니다.
+- `GET /api/geocoding/reverse?latitude=37.5001&longitude=127.0001`: 지도에서 핀을 옮긴 위치의 지번·도로명 주소. 주소가 없는 좌표는 두 값이 `null`입니다.
+
+좌표는 기존 민감 장소·`capture-location`과 같은 WGS84 위도·경도입니다. 카카오 API는 `x`=경도, `y`=위도를 사용하므로 서버에서 변환하며 앱은 `latitude`/`longitude`만 사용합니다.
+
+```json
+{"query":"꼭꼭로 12","coordinateSystem":"WGS84","results":[{"type":"address","name":"서울 합성구 꼭꼭로 12","address":"서울 합성구 꼭꼭로 12","latitude":37.5001,"longitude":127.0001}]}
+```
+
+검색어는 공백 제거 후 1~100자, 좌표는 위도 -90~90·경도 -180~180입니다. 오류: 400 `INVALID_QUERY`·`INVALID_COORDINATE`, 429 `GEOCODING_RATE_LIMITED`, 502 `GEOCODING_UNAVAILABLE`·`INVALID_GEOCODING_RESPONSE`, 503 `GEOCODING_NOT_CONFIGURED`(키 미설정), 504 `GEOCODING_TIMEOUT`. 검색어·좌표·카카오 응답 본문은 로그와 오류 메시지에 남기지 않으며 응답은 `Cache-Control: no-store`입니다. 다른 `/api` 요청과 같은 앱 키·파일럿 인증을 적용합니다.
+
 ## 오류
 
 ```json
