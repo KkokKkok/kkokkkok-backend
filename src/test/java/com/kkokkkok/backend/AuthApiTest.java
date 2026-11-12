@@ -48,6 +48,8 @@ class AuthApiTest {
             "kakao-token-a", new String[]{"1001", APP_ID, "합성 사용자A"},
             "kakao-token-b", new String[]{"1002", APP_ID, "합성 사용자B"},
             "kakao-token-c", new String[]{"1003", APP_ID, "합성 사용자C"},
+            "kakao-token-d-no-consent", new String[]{"1004", APP_ID, ""},
+            "kakao-token-d", new String[]{"1004", APP_ID, "합성 사용자D"},
             "kakao-token-other-app", new String[]{"1001", "999", "다른 앱"});
     private static final AtomicInteger KAKAO_CALLS = new AtomicInteger();
     private static final HttpServer KAKAO = start();
@@ -175,6 +177,17 @@ class AuthApiTest {
         assertEquals(Boolean.TRUE, JsonPath.read(body(call(get("/api/auth/me"), access, 200)), "$.termsAccepted"));
     }
 
+    @Test void missingNicknameConsentIsReportedAndLaterConsentUpdatesName() throws Exception {
+        var first = login("kakao-token-d-no-consent", null, 200);
+        assertEquals(Boolean.TRUE, JsonPath.read(body(first), "$.profileConsentRequired"));
+        assertEquals("꼭꼭 사용자", field(first, "user.displayName"));
+        // After additional consent the app logs in again with the new Kakao token: same user, real nickname.
+        var second = login("kakao-token-d", null, 200);
+        assertEquals(Boolean.FALSE, JsonPath.read(body(second), "$.profileConsentRequired"));
+        assertEquals(field(first, "user.userId"), field(second, "user.userId"));
+        assertEquals("합성 사용자D", field(second, "user.displayName"));
+    }
+
     @Test void kakaoIsNotCalledForMalformedRefreshOrUnauthenticatedCalls() throws Exception {
         int before = KAKAO_CALLS.get();
         refresh("kkr_short", 401);
@@ -228,7 +241,9 @@ class AuthApiTest {
                 else if (path.equals("/v1/user/access_token_info"))
                     json = "{\"id\":" + user[0] + ",\"expires_in\":7199,\"app_id\":" + user[1] + "}";
                 else if (path.equals("/v2/user/me"))
-                    json = "{\"id\":" + user[0] + ",\"connected_at\":\"" + Instant.now() + "\",\"kakao_account\":{\"profile\":{\"nickname\":\"" + user[2] + "\"}}}";
+                    json = user[2].isEmpty()
+                            ? "{\"id\":" + user[0] + ",\"kakao_account\":{\"profile_nickname_needs_agreement\":true}}"
+                            : "{\"id\":" + user[0] + ",\"connected_at\":\"" + Instant.now() + "\",\"kakao_account\":{\"profile_nickname_needs_agreement\":false,\"profile\":{\"nickname\":\"" + user[2] + "\"}}}";
                 else { status = 404; json = "{}"; }
                 byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().add("Content-Type", "application/json;charset=UTF-8");

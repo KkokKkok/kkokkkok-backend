@@ -824,6 +824,7 @@ components:
         installationDataLinked: { type: boolean }
         termsAccepted: { type: boolean, description: 현재 약관 버전 필수 항목 동의 여부. false면 데이터 API는 403 TERMS_REQUIRED }
         termsVersion: { type: string }
+        profileConsentRequired: { type: boolean, description: 카카오 닉네임 선택 동의 미수집. 앱이 추가 동의 후 다시 로그인 }
     TermsStatus:
       type: object
       properties:

@@ -95,6 +95,8 @@ public class AuthService {
         response.put("termsAccepted", terms.accepted(user.getId()));
         response.put("termsVersion", terms.currentVersion());
         response.put("installationDataLinked", linked);
+        // The app may ask Kakao for the optional nickname consent (additional consent) and log in again.
+        response.put("profileConsentRequired", kakaoUser.nicknameConsentRequired());
         return response;
     }
 

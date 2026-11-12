@@ -49,7 +49,7 @@ public class KakaoAuthClient {
             throw invalidToken();
         var me = call(() -> client.get().uri("/v2/user/me").header("Authorization", bearer).retrieve().body(BODY));
         if (me == null || !(me.get("id") instanceof Number meId) || meId.longValue() != id.longValue()) throw invalidToken();
-        return new KakaoUser(Long.toString(id.longValue()), nickname(me));
+        return new KakaoUser(Long.toString(id.longValue()), nickname(me), nicknameConsentRequired(me));
     }
 
     @SuppressWarnings("unchecked")
@@ -59,6 +59,12 @@ public class KakaoAuthClient {
         if (me.get("properties") instanceof Map<?, ?> properties && properties.get("nickname") instanceof String name
                 && !name.isBlank()) return limit(name);
         return null;
+    }
+
+    /** Kakao omits the nickname until the user agrees to the optional profile_nickname item. */
+    private static boolean nicknameConsentRequired(Map<String, Object> me) {
+        return me.get("kakao_account") instanceof Map<?, ?> account
+                && Boolean.TRUE.equals(account.get("profile_nickname_needs_agreement"));
     }
 
     private static String limit(String value) {
@@ -84,5 +90,5 @@ public class KakaoAuthClient {
         return new ApiFailure(401, "SOCIAL_TOKEN_INVALID", "카카오 로그인 정보를 확인할 수 없어요. 다시 로그인해 주세요.");
     }
 
-    public record KakaoUser(String providerUserId, String nickname) {}
+    public record KakaoUser(String providerUserId, String nickname, boolean nicknameConsentRequired) {}
 }
