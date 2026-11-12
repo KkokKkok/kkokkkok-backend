@@ -14,10 +14,17 @@ public class ProfileService {
     private final SensitivePlaceRepository places;
     private final CumulativeRunRepository cumulative;
     private final PilotOwnership ownership;
+    private final UserAccountRepository users;
     public ProfileService(ImageAssetRepository assets, InspectionRepository inspections, EditRunRepository edits,
                           SensitivePlaceRepository places, CumulativeRunRepository cumulative, PilotOwnership ownership) {
+        this(assets, inspections, edits, places, cumulative, ownership, null);
+    }
+    @org.springframework.beans.factory.annotation.Autowired
+    public ProfileService(ImageAssetRepository assets, InspectionRepository inspections, EditRunRepository edits,
+                          SensitivePlaceRepository places, CumulativeRunRepository cumulative, PilotOwnership ownership,
+                          UserAccountRepository users) {
         this.assets=assets; this.inspections=inspections; this.edits=edits;
-        this.places=places; this.cumulative=cumulative; this.ownership=ownership;
+        this.places=places; this.cumulative=cumulative; this.ownership=ownership; this.users=users;
     }
     @Transactional(readOnly=true)
     public Map<String,Object> overview(UUID installationId) {
@@ -31,7 +38,10 @@ public class ProfileService {
         long checks = inspections.findAll().stream().filter(i -> originalIds.contains(i.getAssetId()) && "completed".equals(i.getStatus())).count();
         long editCount = edits.findAll().stream().filter(e -> originalIds.contains(e.getSourceAssetId()) && "completed".equals(e.getStatus())).count();
         long cumulativeCount = cumulative.findAll().stream().filter(r -> placeIds.contains(r.getPlaceId())).count();
-        return Map.of("dataScope", authenticated == null ? "local_shared" : "installation", "displayName", "테스터", "photoChecks", checks, "protectionEdits", editCount,
+        String displayName = "테스터";
+        if (authenticated != null && ownership.loginMode() && users != null)
+            displayName = users.findById(authenticated).map(u -> u.getDisplayName()).orElse(displayName);
+        return Map.of("dataScope", authenticated == null ? "local_shared" : ownership.loginMode() ? "user" : "installation", "displayName", displayName, "photoChecks", checks, "protectionEdits", editCount,
                 "cumulativeChecks", cumulativeCount,
                 "sensitivePlaces", ownedPlaces.stream().map(p -> Map.of("name",p.getName(),"category",p.getCategory())).toList(),
                 "storagePolicy", Map.of("autoDeleteOriginals",false,"retention","until_user_deletes"));
