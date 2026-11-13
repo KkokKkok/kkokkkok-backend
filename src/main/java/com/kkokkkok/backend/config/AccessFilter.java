@@ -13,6 +13,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 public class AccessFilter extends OncePerRequestFilter {
     @Value("${app.pilot.enabled:false}") private boolean pilotEnabled;
+    // Login mode authenticates each user; the shared app key is not used.
+    @Value("${app.auth.enabled:false}") private boolean authEnabled;
     private final String key;
     private final boolean apiKeyRequired;
     public AccessFilter(@Value("${app.api-key:}") String key,
@@ -21,7 +23,7 @@ public class AccessFilter extends OncePerRequestFilter {
         this.apiKeyRequired = apiKeyRequired;
     }
     @Override protected void doFilterInternal(HttpServletRequest req,HttpServletResponse res,FilterChain chain) throws ServletException,IOException {
-        if (pilotEnabled || !req.getRequestURI().substring(req.getContextPath().length()).startsWith("/api/")) { chain.doFilter(req,res); return; }
+        if (pilotEnabled || authEnabled || !req.getRequestURI().substring(req.getContextPath().length()).startsWith("/api/")) { chain.doFilter(req,res); return; }
         String provided = req.getHeader("X-App-Api-Key");
         if (apiKeyRequired && (key.isBlank() || provided == null || !MessageDigest.isEqual(
                 key.getBytes(StandardCharsets.UTF_8), provided.getBytes(StandardCharsets.UTF_8)))) {

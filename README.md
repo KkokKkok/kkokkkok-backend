@@ -112,6 +112,10 @@ Service는 외부 HTTP 호출 중 DB 트랜잭션을 유지하지 않습니다. 
 
 Docker로 로컬 배포 환경을 확인하려면 [컨테이너 실행 안내](deploy/README.md)를 참고하세요.
 
+## 카카오 로그인 모드
+
+`AUTH_ENABLED=true`와 `KAKAO_APP_ID`(카카오 콘솔의 숫자 앱 ID)를 설정하면, 앱의 카카오 로그인 토큰을 서버가 검증하고 사용자별로 사진·검사·편집·누적 기록·민감 장소를 분리합니다. 이 모드에서는 공유 앱 키 대신 서비스 access token을 사용하며 `pilot` profile과 함께 켤 수 없습니다. 로그인 전 개발 데이터 중 같은 설치 ID의 장소만 옮기려면 개발 환경에서 `AUTH_LINK_INSTALLATION_DATA=true`를 사용합니다. 요청·응답과 소유권 규칙은 [로그인 API](docs/inspection-api.md#로그인-api-카카오-로그인-모드)를 참고하세요.
+
 ## 팀원·멘토 비공개 파일럿
 
 `pilot` profile에서 초대 코드로 최초 1회 기기를 등록하고 설치별 자격으로 사진·검사·편집·누적 기록 접근을 분리할 수 있습니다. 기본/로컬 개발 모드에는 이 보장이 없습니다. 원격 배포에는 `postgres,pilot`과 HTTPS를 사용합니다. 기존 공유 데이터는 자동으로 특정 기기에 배정하지 않습니다. [등록 API와 운영 안내](docs/pilot-access.md)를 참고하세요.

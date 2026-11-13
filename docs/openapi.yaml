@@ -21,6 +21,7 @@ tags:
   - name: 보호 편집
   - name: 누적 분석
   - name: 위치 검색
+  - name: 로그인
 paths:
   /api/installations/enroll:
     post:
@@ -590,6 +591,121 @@ paths:
         '502': { description: GEOCODING_UNAVAILABLE }
         '503': { description: GEOCODING_NOT_CONFIGURED }
         '504': { description: GEOCODING_TIMEOUT }
+  /api/auth/kakao:
+    post:
+      tags: [로그인]
+      summary: 카카오 access token으로 로그인 (로그인 모드)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accessToken]
+              properties:
+                accessToken: { type: string, maxLength: 4096, description: Android 카카오 SDK의 사용자 access token }
+                installationId: { type: string, format: uuid, description: 개발용 데이터 연결에만 사용 }
+      responses:
+        '200':
+          description: 서비스 토큰과 사용자
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+              example:
+                tokenType: Bearer
+                accessToken: kka_…
+                accessTokenExpiresAt: '2026-11-13T05:00:00Z'
+                refreshToken: kkr_…
+                refreshTokenExpiresAt: '2026-12-13T04:00:00Z'
+                user: { userId: 22222222-2222-4222-8222-222222222222, displayName: 합성 사용자 }
+                newUser: true
+                installationDataLinked: false
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { description: SOCIAL_TOKEN_INVALID — 카카오 토큰 무효 또는 다른 앱 토큰 }
+        '404': { description: AUTH_DISABLED — 로그인 모드가 아닌 서버 }
+        '502': { description: SOCIAL_AUTH_UNAVAILABLE }
+        '503': { description: AUTH_NOT_CONFIGURED — KAKAO_APP_ID 미설정 }
+        '504': { description: SOCIAL_AUTH_TIMEOUT }
+  /api/auth/refresh:
+    post:
+      tags: [로그인]
+      summary: access·refresh 토큰 교체 (이전 refresh 토큰 재사용 시 세션 종료)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: 새 토큰 (newUser·installationDataLinked 제외)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '401': { description: AUTH_REQUIRED — 만료·로그아웃·재사용된 refresh 토큰 }
+  /api/auth/logout:
+    post:
+      tags: [로그인]
+      summary: 현재 세션 종료
+      parameters:
+        - { name: Authorization, in: header, required: true, schema: { type: string }, example: Bearer kka_… }
+      responses:
+        '204': { description: 로그아웃 }
+        '401': { description: AUTH_REQUIRED }
+  /api/auth/me:
+    get:
+      tags: [로그인]
+      summary: 현재 로그인 사용자
+      parameters:
+        - { name: Authorization, in: header, required: true, schema: { type: string }, example: Bearer kka_… }
+      responses:
+        '200':
+          description: 사용자
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthUser' }
+        '401': { description: AUTH_REQUIRED }
+  /api/auth/terms:
+    get:
+      tags: [로그인]
+      summary: 현재 약관 동의 상태
+      responses:
+        '200':
+          description: 동의 상태
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TermsStatus' }
+        '401': { description: AUTH_REQUIRED }
+    post:
+      tags: [로그인]
+      summary: 약관 동의 기록 (필수 3개 + 선택 알림 수신)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [termsVersion, serviceTerms, privacy, location, marketing]
+              properties:
+                termsVersion: { type: string, example: '2026-11-13' }
+                serviceTerms: { type: boolean }
+                privacy: { type: boolean }
+                location: { type: boolean }
+                marketing: { type: boolean }
+      responses:
+        '200':
+          description: 저장된 동의 상태
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TermsStatus' }
+        '400': { description: REQUIRED_TERMS_NOT_ACCEPTED }
+        '401': { description: AUTH_REQUIRED }
+        '409': { description: TERMS_VERSION_MISMATCH }
   /actuator/health:
     get:
       summary: Spring 서버 상태
@@ -688,6 +804,35 @@ components:
         coordinateSystem: { type: string, enum: [WGS84] }
         address: { type: string, nullable: true }
         roadAddress: { type: string, nullable: true }
+    AuthUser:
+      type: object
+      required: [userId, displayName]
+      properties:
+        userId: { type: string, format: uuid }
+        displayName: { type: string }
+    AuthTokens:
+      type: object
+      required: [tokenType, accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, user]
+      properties:
+        tokenType: { type: string, enum: [Bearer] }
+        accessToken: { type: string }
+        accessTokenExpiresAt: { type: string, format: date-time }
+        refreshToken: { type: string }
+        refreshTokenExpiresAt: { type: string, format: date-time }
+        user: { $ref: '#/components/schemas/AuthUser' }
+        newUser: { type: boolean }
+        installationDataLinked: { type: boolean }
+        termsAccepted: { type: boolean, description: 현재 약관 버전 필수 항목 동의 여부. false면 데이터 API는 403 TERMS_REQUIRED }
+        termsVersion: { type: string }
+        profileConsentRequired: { type: boolean, description: 카카오 닉네임 선택 동의 미수집. 앱이 추가 동의 후 다시 로그인 }
+    TermsStatus:
+      type: object
+      properties:
+        currentVersion: { type: string }
+        accepted: { type: boolean }
+        agreedVersion: { type: string, nullable: true }
+        marketing: { type: boolean }
+        agreedAt: { type: string, format: date-time, nullable: true }
     Error:
       type: object
       required: [error]
