@@ -8,6 +8,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,6 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/places")
 public class SensitivePlaceController {
+    /** Place responses can carry the owner's coordinates in login mode; never let a proxy or client cache them. */
+    private static final CacheControl NO_STORE = CacheControl.noStore();
     private final CumulativeAnalysisService service;
     public SensitivePlaceController(CumulativeAnalysisService service) { this.service = service; }
 
@@ -30,27 +33,29 @@ public class SensitivePlaceController {
             @RequestHeader("X-Installation-Id") UUID installationId,
             @Valid @RequestBody SensitivePlaceRequest request) {
         Map<String, Object> result = service.createPlace(installationId, request.name(), request.category(),
-                request.latitude(), request.longitude(), request.radiusMeters() == null ? 300 : request.radiusMeters());
-        return ResponseEntity.created(URI.create("/api/places/" + result.get("placeId"))).body(result);
+                request.latitude(), request.longitude(), request.radiusMeters() == null ? 300 : request.radiusMeters(),
+                request.address());
+        return ResponseEntity.created(URI.create("/api/places/" + result.get("placeId"))).cacheControl(NO_STORE).body(result);
     }
 
     @GetMapping
-    public List<Map<String, Object>> list(@RequestHeader("X-Installation-Id") UUID installationId) {
-        return service.listPlaces(installationId);
+    public ResponseEntity<List<Map<String, Object>>> list(@RequestHeader("X-Installation-Id") UUID installationId) {
+        return ResponseEntity.ok().cacheControl(NO_STORE).body(service.listPlaces(installationId));
     }
 
     @GetMapping("/{placeId}")
-    public Map<String, Object> get(@RequestHeader("X-Installation-Id") UUID installationId,
-                                   @PathVariable UUID placeId) {
-        return service.getPlace(installationId, placeId);
+    public ResponseEntity<Map<String, Object>> get(@RequestHeader("X-Installation-Id") UUID installationId,
+                                                   @PathVariable UUID placeId) {
+        return ResponseEntity.ok().cacheControl(NO_STORE).body(service.getPlace(installationId, placeId));
     }
 
     @PutMapping("/{placeId}")
-    public Map<String, Object> update(@RequestHeader("X-Installation-Id") UUID installationId,
+    public ResponseEntity<Map<String, Object>> update(@RequestHeader("X-Installation-Id") UUID installationId,
                                       @PathVariable UUID placeId,
                                       @Valid @RequestBody SensitivePlaceRequest request) {
-        return service.updatePlace(installationId, placeId, request.name(), request.category(),
-                request.latitude(), request.longitude(), request.radiusMeters() == null ? 300 : request.radiusMeters());
+        return ResponseEntity.ok().cacheControl(NO_STORE).body(service.updatePlace(installationId, placeId,
+                request.name(), request.category(), request.latitude(), request.longitude(),
+                request.radiusMeters() == null ? 300 : request.radiusMeters(), request.address()));
     }
 
     @DeleteMapping("/{placeId}")

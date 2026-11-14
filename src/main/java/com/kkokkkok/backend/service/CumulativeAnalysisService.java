@@ -40,11 +40,12 @@ public class CumulativeAnalysisService {
     private final CumulativeRunRepository runs;
     private final ImageAssetService assetService;
     private final AnalysisClient analysisClient;
+    private final PilotOwnership ownership;
 
     public CumulativeAnalysisService(SensitivePlaceRepository places, PlaceAssetLinkRepository links,
                                      ImageAssetRepository assets, InspectionRepository inspections,
                                      CumulativeRunRepository runs, ImageAssetService assetService,
-                                     AnalysisClient analysisClient) {
+                                     AnalysisClient analysisClient, PilotOwnership ownership) {
         this.places = places;
         this.links = links;
         this.assets = assets;
@@ -52,6 +53,7 @@ public class CumulativeAnalysisService {
         this.runs = runs;
         this.assetService = assetService;
         this.analysisClient = analysisClient;
+        this.ownership = ownership;
     }
 
     public List<Map<String, Object>> listPlaces(UUID installationId) {
@@ -62,12 +64,18 @@ public class CumulativeAnalysisService {
     @Transactional
     public Map<String, Object> createPlace(UUID installationId, String name, String category,
                                            double latitude, double longitude, Integer radiusMeters) {
+        return createPlace(installationId, name, category, latitude, longitude, radiusMeters, null);
+    }
+
+    @Transactional
+    public Map<String, Object> createPlace(UUID installationId, String name, String category,
+                                           double latitude, double longitude, Integer radiusMeters, String address) {
         validateCoordinates(latitude, longitude);
         if (!List.of("home", "work", "school", "other").contains(category))
             throw new ApiFailure(400, "INVALID_PLACE_CATEGORY", "장소 종류를 확인해 주세요.");
         validateRadius(radiusMeters);
         SensitivePlace place = places.save(new SensitivePlace(UUID.randomUUID(), installationId,
-                name.trim(), category, latitude, longitude, radiusMeters));
+                name.trim(), category, latitude, longitude, radiusMeters, address(address)));
         return placeView(place);
     }
 
@@ -78,12 +86,18 @@ public class CumulativeAnalysisService {
     @Transactional
     public Map<String, Object> updatePlace(UUID installationId, UUID placeId, String name, String category,
                                           double latitude, double longitude, Integer radiusMeters) {
+        return updatePlace(installationId, placeId, name, category, latitude, longitude, radiusMeters, null);
+    }
+
+    @Transactional
+    public Map<String, Object> updatePlace(UUID installationId, UUID placeId, String name, String category,
+                                          double latitude, double longitude, Integer radiusMeters, String address) {
         validateCoordinates(latitude, longitude);
         if (!List.of("home", "work", "school", "other").contains(category))
             throw new ApiFailure(400, "INVALID_PLACE_CATEGORY", "장소 종류를 확인해 주세요.");
         validateRadius(radiusMeters);
         SensitivePlace place = requirePlace(installationId, placeId);
-        place.update(name.trim(), category, latitude, longitude, radiusMeters);
+        place.update(name.trim(), category, latitude, longitude, radiusMeters, address(address));
         return placeView(place);
     }
 
@@ -309,7 +323,20 @@ public class CumulativeAnalysisService {
         view.put("category", place.getCategory());
         view.put("radiusMeters", place.getRadiusMeters());
         view.put("createdAt", place.getCreatedAt());
-        return view; // Never return the registered GPS coordinates.
+        // Coordinates and address go back only to an authenticated owner (login mode); an unverified installation
+        // header must never be enough to read where someone lives.
+        if (ownership.loginMode()) {
+            view.put("latitude", place.getLatitude());
+            view.put("longitude", place.getLongitude());
+            view.put("address", place.getAddress());
+        }
+        return view;
+    }
+
+    private static String address(String value) {
+        if (value == null || value.isBlank()) return null;
+        String trimmed = value.strip();
+        return trimmed.length() > 200 ? trimmed.substring(0, 200) : trimmed;
     }
 
     private Map<String, Object> assetView(ImageAsset asset) {

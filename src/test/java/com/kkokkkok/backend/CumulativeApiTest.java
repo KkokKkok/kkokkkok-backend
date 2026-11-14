@@ -61,6 +61,7 @@ class CumulativeApiTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.latitude").doesNotExist())
                 .andExpect(jsonPath("$.longitude").doesNotExist())
+                .andExpect(jsonPath("$.address").doesNotExist())
                 .andReturn();
         String placeId = com.jayway.jsonpath.JsonPath.read(placeResponse.getResponse().getContentAsString(), "$.placeId");
 
