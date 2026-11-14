@@ -27,6 +27,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class AuthService {
     public static final String KAKAO = "kakao";
+    public static final String NAVER = "naver";
     private static final String ACCESS_PREFIX = "kka_";
     private static final String REFRESH_PREFIX = "kkr_";
     private static final String DEFAULT_NAME = "꼭꼭 사용자";
@@ -59,25 +60,31 @@ public class AuthService {
     public Map<String, Object> loginWithKakao(String providerAccessToken, UUID installationId) {
         // Verify with Kakao before opening a DB transaction.
         var kakaoUser = kakao.verify(providerAccessToken);
+        return loginVerified(new SocialUser(KAKAO, kakaoUser.providerUserId(), kakaoUser.nickname(),
+                kakaoUser.nicknameConsentRequired()), installationId);
+    }
+
+    /** Signs in a member the provider has already verified (Kakao token check or Naver server-side code exchange). */
+    public Map<String, Object> loginVerified(SocialUser socialUser, UUID installationId) {
         try {
-            return transaction.execute(status -> login(kakaoUser, installationId));
+            return transaction.execute(status -> login(socialUser, installationId));
         } catch (DataIntegrityViolationException concurrentFirstLogin) {
-            return transaction.execute(status -> login(kakaoUser, installationId));
+            return transaction.execute(status -> login(socialUser, installationId));
         }
     }
 
-    private Map<String, Object> login(KakaoAuthClient.KakaoUser kakaoUser, UUID installationId) {
+    private Map<String, Object> login(SocialUser socialUser, UUID installationId) {
         Instant now = Instant.now();
-        var existing = socialAccounts.findByProviderAndProviderUserId(KAKAO, kakaoUser.providerUserId());
+        var existing = socialAccounts.findByProviderAndProviderUserId(socialUser.provider(), socialUser.providerUserId());
         boolean newUser = existing.isEmpty();
         UserAccount user;
         if (newUser) {
             user = users.saveAndFlush(new UserAccount(UUID.randomUUID(),
-                    kakaoUser.nickname() == null ? DEFAULT_NAME : kakaoUser.nickname(), now));
-            socialAccounts.saveAndFlush(new SocialAccount(UUID.randomUUID(), KAKAO, kakaoUser.providerUserId(), user.getId(), now));
+                    socialUser.nickname() == null ? DEFAULT_NAME : socialUser.nickname(), now));
+            socialAccounts.saveAndFlush(new SocialAccount(UUID.randomUUID(), socialUser.provider(), socialUser.providerUserId(), user.getId(), now));
         } else {
             user = users.findById(existing.get().getUserId()).orElseThrow(AuthService::unauthorized);
-            user.loggedIn(kakaoUser.nickname(), now);
+            user.loggedIn(socialUser.nickname(), now);
         }
         boolean linked = false;
         if (linkInstallationData && installationId != null && !installationId.equals(user.getId())
@@ -95,8 +102,9 @@ public class AuthService {
         response.put("termsAccepted", terms.accepted(user.getId()));
         response.put("termsVersion", terms.currentVersion());
         response.put("installationDataLinked", linked);
+        response.put("provider", socialUser.provider());
         // The app may ask Kakao for the optional nickname consent (additional consent) and log in again.
-        response.put("profileConsentRequired", kakaoUser.nicknameConsentRequired());
+        response.put("profileConsentRequired", socialUser.nicknameConsentRequired());
         return response;
     }
 
@@ -178,4 +186,7 @@ public class AuthService {
     static ApiFailure unauthorized() {
         return new ApiFailure(401, "AUTH_REQUIRED", "로그인이 필요해요. 다시 로그인해 주세요.");
     }
+
+    /** A provider member already verified by the backend; nickname is optional. */
+    public record SocialUser(String provider, String providerUserId, String nickname, boolean nicknameConsentRequired) {}
 }

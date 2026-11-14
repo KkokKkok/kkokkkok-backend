@@ -114,7 +114,7 @@ Docker로 로컬 배포 환경을 확인하려면 [컨테이너 실행 안내](d
 
 ## 카카오 로그인 모드
 
-`AUTH_ENABLED=true`와 `KAKAO_APP_ID`(카카오 콘솔의 숫자 앱 ID)를 설정하면, 앱의 카카오 로그인 토큰을 서버가 검증하고 사용자별로 사진·검사·편집·누적 기록·민감 장소를 분리합니다. 이 모드에서는 공유 앱 키 대신 서비스 access token을 사용하며 `pilot` profile과 함께 켤 수 없습니다. 로그인 전 개발 데이터 중 같은 설치 ID의 장소만 옮기려면 개발 환경에서 `AUTH_LINK_INSTALLATION_DATA=true`를 사용합니다. 요청·응답과 소유권 규칙은 [로그인 API](docs/inspection-api.md#로그인-api-카카오-로그인-모드)를 참고하세요.
+`AUTH_ENABLED=true`와 `KAKAO_APP_ID`(카카오 콘솔의 숫자 앱 ID)를 설정하면, 앱의 카카오 로그인 토큰을 서버가 검증하고 사용자별로 사진·검사·편집·누적 기록·민감 장소를 분리합니다. 이 모드에서는 공유 앱 키 대신 서비스 access token을 사용하며 `pilot` profile과 함께 켤 수 없습니다. 로그인 전 개발 데이터 중 같은 설치 ID의 장소만 옮기려면 개발 환경에서 `AUTH_LINK_INSTALLATION_DATA=true`를 사용합니다. 네이버 로그인은 `NAVER_CLIENT_ID`·`NAVER_CLIENT_SECRET`을 서버에만 두고 서버가 인가 코드를 교환합니다(콜백 `NAVER_CALLBACK_URL`을 네이버 개발자센터에 등록). 요청·응답과 소유권 규칙은 [로그인 API](docs/inspection-api.md#로그인-api-카카오-로그인-모드)를 참고하세요.
 
 ## 팀원·멘토 비공개 파일럿
 
