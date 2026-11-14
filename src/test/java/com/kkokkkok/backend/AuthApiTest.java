@@ -50,6 +50,7 @@ class AuthApiTest {
             "kakao-token-c", new String[]{"1003", APP_ID, "합성 사용자C"},
             "kakao-token-d-no-consent", new String[]{"1004", APP_ID, ""},
             "kakao-token-d", new String[]{"1004", APP_ID, "합성 사용자D"},
+            "kakao-token-e", new String[]{"1005", APP_ID, "합성 사용자E"},
             "kakao-token-other-app", new String[]{"1001", "999", "다른 앱"});
     private static final AtomicInteger KAKAO_CALLS = new AtomicInteger();
     private static final HttpServer KAKAO = start();
@@ -144,6 +145,29 @@ class AuthApiTest {
         assertEquals(0, ((Number) JsonPath.read(body(call(get("/api/profile"), b, 200)), "$.photoChecks")).intValue());
         assertEquals("user", JsonPath.read(body(call(get("/api/profile"), a, 200)), "$.dataScope"));
         call(get("/api/assets/" + asset), a, 200);
+    }
+
+    @Test void ownerSeesPlaceCoordinatesAndAddressOnAnyDevice() throws Exception {
+        String a = signedUp("kakao-token-e");
+        var created = call(post("/api/places").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"합성 학교\",\"category\":\"school\",\"latitude\":37.51,\"longitude\":127.02,"
+                        + "\"radiusMeters\":500,\"address\":\" 합성시 합성로 1 \"}"), a, 201);
+        assertEquals("no-store", created.getResponse().getHeader("Cache-Control"));
+        String place = field(created, "placeId");
+        // Another session of the same account (e.g. a second phone) gets the same point and label back.
+        String second = "Bearer " + field(login("kakao-token-e", UUID.randomUUID(), 200), "accessToken");
+        var detail = call(get("/api/places/" + place), second, 200);
+        assertEquals(37.51, ((Number) JsonPath.read(body(detail), "$.latitude")).doubleValue());
+        assertEquals(127.02, ((Number) JsonPath.read(body(detail), "$.longitude")).doubleValue());
+        assertEquals("합성시 합성로 1", field(detail, "address"));
+        assertEquals("no-store", detail.getResponse().getHeader("Cache-Control"));
+        var updated = call(put("/api/places/" + place).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"합성 학교\",\"category\":\"school\",\"latitude\":37.52,\"longitude\":127.03}"), second, 200);
+        assertEquals("null", field(updated, "address"));
+        assertEquals(List.of(37.52), JsonPath.read(body(call(get("/api/places"), a, 200)), "$[?(@.placeId=='" + place + "')].latitude"));
+        call(post("/api/places").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"긴 주소\",\"category\":\"home\",\"latitude\":37.5,\"longitude\":127.0,\"address\":\""
+                        + "가".repeat(201) + "\"}"), a, 400);
     }
 
     @Test void firstLoginLinksPlacesSavedUnderThisInstallation() throws Exception {
