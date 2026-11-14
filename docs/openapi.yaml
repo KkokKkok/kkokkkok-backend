@@ -371,7 +371,7 @@ paths:
         - $ref: '#/components/parameters/InstallationId'
       responses:
         '200':
-          description: 민감 좌표를 제외한 장소 목록
+          description: 장소 목록 (좌표·주소는 로그인 모드의 소유자에게만 포함)
           content:
             application/json:
               schema:
@@ -389,7 +389,7 @@ paths:
             schema: { $ref: '#/components/schemas/SensitivePlaceRequest' }
       responses:
         '201':
-          description: 등록된 장소 (GPS 좌표는 응답에서 제외)
+          description: 등록된 장소 (좌표·주소는 로그인 모드의 소유자에게만 포함)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SensitivePlace' }
@@ -406,7 +406,7 @@ paths:
       summary: 민감 장소 조회
       responses:
         '200':
-          description: 민감 좌표를 제외한 장소 정보
+          description: 장소 정보 (좌표·주소는 로그인 모드의 소유자에게만 포함)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SensitivePlace' }
@@ -421,7 +421,7 @@ paths:
             schema: { $ref: '#/components/schemas/SensitivePlaceRequest' }
       responses:
         '200':
-          description: 변경된 장소 (좌표는 응답에서 제외)
+          description: 변경된 장소 (좌표·주소는 로그인 모드의 소유자에게만 포함)
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SensitivePlace' }
@@ -951,9 +951,10 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 80 }
         category: { type: string, enum: [home, work, school, other] }
-        latitude: { type: number, minimum: -90, maximum: 90, writeOnly: true }
-        longitude: { type: number, minimum: -180, maximum: 180, writeOnly: true }
+        latitude: { type: number, minimum: -90, maximum: 90 }
+        longitude: { type: number, minimum: -180, maximum: 180 }
         radiusMeters: { type: integer, enum: [100, 300, 500, 1000], default: 300 }
+        address: { type: [string, 'null'], maxLength: 200, description: 지도에서 고른 주소 표시 문자열(선택) }
     SensitivePlace:
       type: object
       required: [placeId, name, category, radiusMeters, createdAt]
@@ -963,6 +964,9 @@ components:
         category: { type: string, enum: [home, work, school, other] }
         radiusMeters: { type: integer, enum: [100, 300, 500, 1000] }
         createdAt: { type: string, format: date-time }
+        latitude: { type: number, description: 로그인 모드에서 인증된 소유자에게만 포함 }
+        longitude: { type: number, description: 로그인 모드에서 인증된 소유자에게만 포함 }
+        address: { type: [string, 'null'], description: 로그인 모드에서 인증된 소유자에게만 포함 }
     PlaceAssetRequest:
       type: object
       required: [assetId]

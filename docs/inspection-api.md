@@ -59,7 +59,7 @@ Spring `ANALYSIS_PROVIDER=node`의 단독 요청은 Node의 `/api/inspections`�
 
 누적 실행은 등록 장소와 연결한 저장 사진의 최신 완료 단독 검사를 다시 읽어 계산합니다. 앱은 첫 실행 때 UUID `X-Installation-Id`를 만들어 앱 내부에 저장하고 아래 장소·누적 이력 요청에 함께 보냅니다. 이 식별자는 로그인이나 갤러리 전체의 사용자 소유권 검사를 대신하지 않습니다.
 
-민감 장소 좌표는 요청에서만 받고 응답에 내보내지 않습니다. 사진 촬영 좌표는 원본 EXIF를 우선 사용합니다. EXIF가 없는 사진은 `PUT /api/assets/{assetId}/capture-location`에 사용자가 직접 입력한 위도·경도와 `source: manual`을 보냅니다. 원본 EXIF를 덮어쓰지 않고 직접 입력 위치를 별도 필드로 보관하며, 응답의 `locationStatus`는 `manual`이 됩니다. 민감 장소 좌표를 사진 촬영 좌표 대신 넣지 않습니다.
+민감 장소 좌표는 로그인 모드(`AUTH_ENABLED=true`)에서만 본인에게 돌려주고, 설치 ID로만 구분하는 모드에서는 응답에 내보내지 않습니다. 사진 촬영 좌표는 원본 EXIF를 우선 사용합니다. EXIF가 없는 사진은 `PUT /api/assets/{assetId}/capture-location`에 사용자가 직접 입력한 위도·경도와 `source: manual`을 보냅니다. 원본 EXIF를 덮어쓰지 않고 직접 입력 위치를 별도 필드로 보관하며, 응답의 `locationStatus`는 `manual`이 됩니다. 민감 장소 좌표를 사진 촬영 좌표 대신 넣지 않습니다.
 
 ```http
 POST /api/places
@@ -68,10 +68,10 @@ Content-Type: application/json
 ```
 
 ```json
-{"name":"우리 집","category":"home","latitude":37.5001,"longitude":127.0001}
+{"name":"우리 집","category":"home","latitude":37.5001,"longitude":127.0001,"radiusMeters":300,"address":"서울 중구 세종대로 110"}
 ```
 
-장소 응답은 `placeId`, 이름, 종류, 생성 시각만 포함하고 좌표는 포함하지 않습니다. 저장 사진을 `POST /api/places/{placeId}/assets`의 `{"assetId":"..."}`로 한 장씩 연결합니다. 한 사진을 여러 민감 장소에 연결할 수 있습니다.
+`address`는 사용자가 지도에서 고른 주소 표시용 문자열로 선택 항목이며 최대 200자입니다. 장소 응답은 `placeId`, 이름, 종류, 반경, 생성 시각을 포함합니다. 로그인 모드에서는 인증된 소유자에게 `latitude`, `longitude`, `address`도 포함해 다른 기기에서도 같은 장소를 지도에 표시할 수 있게 합니다. 다른 사용자의 장소는 404입니다. 설치 ID 모드에서는 검증되지 않은 헤더만으로 좌표가 노출되지 않도록 좌표와 주소를 응답하지 않습니다. 장소 응답은 `Cache-Control: no-store`입니다. 저장 사진을 `POST /api/places/{placeId}/assets`의 `{"assetId":"..."}`로 한 장씩 연결합니다. 한 사진을 여러 민감 장소에 연결할 수 있습니다.
 
 누적 분석은 `POST /api/cumulative-runs`로 동기 실행합니다. 단독 모델을 다시 실행하지 않고 최신 완료 결과를 재사용합니다.
 

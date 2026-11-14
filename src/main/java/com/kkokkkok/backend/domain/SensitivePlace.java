@@ -18,12 +18,18 @@ public class SensitivePlace {
     @Column(nullable = false) private double latitude;
     @Column(nullable = false) private double longitude;
     @Column(nullable = false) private int radiusMeters;
+    @Column(length = 200) private String address;
     @Column(nullable = false, updatable = false) private Instant createdAt;
 
     protected SensitivePlace() {}
 
     public SensitivePlace(UUID id, UUID installationId, String name, String category, double latitude,
                           double longitude, int radiusMeters) {
+        this(id, installationId, name, category, latitude, longitude, radiusMeters, null);
+    }
+
+    public SensitivePlace(UUID id, UUID installationId, String name, String category, double latitude,
+                          double longitude, int radiusMeters, String address) {
         this.id = id;
         this.installationId = installationId;
         this.name = name;
@@ -31,15 +37,18 @@ public class SensitivePlace {
         this.latitude = latitude;
         this.longitude = longitude;
         this.radiusMeters = radiusMeters;
+        this.address = address;
         this.createdAt = Instant.now();
     }
 
-    public void update(String name, String category, double latitude, double longitude, int radiusMeters) {
+    public void update(String name, String category, double latitude, double longitude, int radiusMeters,
+                       String address) {
         this.name = name;
         this.category = category;
         this.latitude = latitude;
         this.longitude = longitude;
         this.radiusMeters = radiusMeters;
+        this.address = address;
     }
 
     public UUID getId() { return id; }
@@ -49,5 +58,6 @@ public class SensitivePlace {
     public double getLatitude() { return latitude; }
     public double getLongitude() { return longitude; }
     public int getRadiusMeters() { return radiusMeters; }
+    public String getAddress() { return address; }
     public Instant getCreatedAt() { return createdAt; }
 }
