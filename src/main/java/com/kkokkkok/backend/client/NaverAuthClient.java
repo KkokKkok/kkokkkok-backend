@@ -2,6 +2,8 @@ package com.kkokkkok.backend.client;
 
 import com.kkokkkok.backend.apiPayload.exception.ApiFailure;
 import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Set;
@@ -16,7 +18,6 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
-import org.springframework.web.util.UriComponentsBuilder;
 
 /**
  * Naver Login (authorization code flow) done on the server: the client secret never leaves the backend.
@@ -60,10 +61,8 @@ public class NaverAuthClient {
     /** Naver login page the app opens in a browser tab; Naver redirects back to the registered callback URL. */
     public String authorizeUrl(String state) {
         requireConfigured();
-        return UriComponentsBuilder.fromUriString(authBaseUrl + "/oauth2.0/authorize")
-                .queryParam("response_type", "code").queryParam("client_id", clientId)
-                .queryParam("redirect_uri", callbackUrl).queryParam("state", state)
-                .encode().build().toUriString();
+        return authBaseUrl + "/oauth2.0/authorize?response_type=code&client_id=" + encode(clientId)
+                + "&redirect_uri=" + encode(callbackUrl) + "&state=" + encode(state);
     }
 
     /** Exchanges the callback code for a Naver access token and reads the member id/nickname with it. */
@@ -105,6 +104,8 @@ public class NaverAuthClient {
             // The token expires on its own (1 hour); login already succeeded.
         }
     }
+
+    private static String encode(String value) { return URLEncoder.encode(value, StandardCharsets.UTF_8); }
 
     private void requireConfigured() {
         if (!configured()) throw new ApiFailure(503, "AUTH_NOT_CONFIGURED", "네이버 로그인이 설정되지 않았어요.");
