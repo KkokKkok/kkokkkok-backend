@@ -30,7 +30,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
 public class AuthAccessFilter extends OncePerRequestFilter {
     public static final String SESSION_ATTRIBUTE = "auth.session-id";
-    private static final Set<String> PUBLIC = Set.of("POST /api/auth/kakao", "POST /api/auth/refresh");
+    private static final Set<String> PUBLIC = Set.of("POST /api/auth/kakao", "POST /api/auth/refresh",
+            "POST /api/auth/naver/start", "GET /api/auth/naver/callback", "POST /api/auth/naver/exchange");
     private final boolean enabled;
     private final AuthService auth;
     private final TermsService terms;

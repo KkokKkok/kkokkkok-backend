@@ -627,6 +627,72 @@ paths:
         '502': { description: SOCIAL_AUTH_UNAVAILABLE }
         '503': { description: AUTH_NOT_CONFIGURED — KAKAO_APP_ID 미설정 }
         '504': { description: SOCIAL_AUTH_TIMEOUT }
+  /api/auth/naver/start:
+    post:
+      tags: [로그인]
+      summary: 네이버 로그인 시작 (서버 코드 교환, 로그인 모드)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [codeChallenge]
+              properties:
+                codeChallenge: { type: string, pattern: '^[A-Za-z0-9_-]{43}$', description: base64url(SHA-256(code verifier)) }
+                installationId: { type: string, format: uuid, description: 개발용 데이터 연결에만 사용 }
+      responses:
+        '200':
+          description: 브라우저 탭으로 열 네이버 로그인 주소
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authorizeUrl, expiresInSeconds]
+                properties:
+                  authorizeUrl: { type: string, format: uri }
+                  expiresInSeconds: { type: integer, example: 600 }
+        '400': { description: INVALID_CODE_CHALLENGE }
+        '404': { description: AUTH_DISABLED — 로그인 모드가 아닌 서버 }
+        '429': { description: TOO_MANY_LOGIN_ATTEMPTS }
+        '503': { description: AUTH_NOT_CONFIGURED — 네이버 키 미설정 }
+  /api/auth/naver/callback:
+    get:
+      tags: [로그인]
+      summary: 네이버 로그인 콜백 (브라우저용, 앱 링크로 되돌림)
+      security: []
+      parameters:
+        - { name: code, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string } }
+        - { name: error, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: "앱으로 돌아가는 HTML. 성공 시 kkokkkok://naver-login?code=…, 실패 시 ?error=cancelled|expired|failed"
+          content:
+            text/html: { schema: { type: string } }
+  /api/auth/naver/exchange:
+    post:
+      tags: [로그인]
+      summary: 앱 링크의 일회용 code와 verifier로 서비스 토큰 받기
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, codeVerifier]
+              properties:
+                code: { type: string, maxLength: 128 }
+                codeVerifier: { type: string, minLength: 43, maxLength: 128 }
+      responses:
+        '200':
+          description: 카카오 로그인과 같은 형식 (provider는 naver)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        '401': { description: SOCIAL_LOGIN_EXPIRED — code 만료·재사용 또는 verifier 불일치 }
   /api/auth/refresh:
     post:
       tags: [로그인]
@@ -825,6 +891,7 @@ components:
         termsAccepted: { type: boolean, description: 현재 약관 버전 필수 항목 동의 여부. false면 데이터 API는 403 TERMS_REQUIRED }
         termsVersion: { type: string }
         profileConsentRequired: { type: boolean, description: 카카오 닉네임 선택 동의 미수집. 앱이 추가 동의 후 다시 로그인 }
+        provider: { type: string, enum: [kakao, naver], description: 로그인한 소셜 계정 종류 (로그인 응답에만 포함) }
     TermsStatus:
       type: object
       properties:

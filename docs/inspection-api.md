@@ -271,6 +271,17 @@ Content-Type: application/json
 - 로그인·갱신 응답에도 `termsAccepted`, `termsVersion`이 포함됩니다.
 - 로그인 응답의 `profileConsentRequired`가 `true`면 카카오가 선택 동의 항목(닉네임)을 받지 못해 닉네임을 주지 않은 상태입니다. 앱은 카카오 추가 항목 동의(`profile_nickname`)를 요청한 뒤 새 카카오 토큰으로 다시 로그인하며, 같은 사용자의 이름이 갱신됩니다. 동의하지 않으면 기본 이름 "꼭꼭 사용자"를 씁니다.
 
+### 네이버 로그인 (서버 코드 교환)
+
+네이버는 Client Secret이 앱에 들어가지 않도록 서버가 인가 코드를 교환합니다(`NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET`, `NAVER_CALLBACK_URL`). 네이버 개발자센터에는 `NAVER_CALLBACK_URL`과 똑같은 Callback URL을 등록합니다. 로컬 기본값은 `http://127.0.0.1:8098/api/auth/naver/callback`이고, 휴대폰은 `adb reverse`로 같은 주소에 연결합니다.
+
+1. 앱이 임의의 code verifier(43~128자)를 만들고 `POST /api/auth/naver/start` `{"codeChallenge":"base64url(SHA-256(verifier))","installationId":"…"}`를 보냅니다. 응답 `{"authorizeUrl":"https://nid.naver.com/oauth2.0/authorize?…","expiresInSeconds":600}`
+2. 앱이 `authorizeUrl`을 브라우저 탭(Custom Tab)으로 엽니다. 사용자가 네이버에서 로그인·동의합니다.
+3. 네이버가 `GET /api/auth/naver/callback?code=…&state=…`로 돌아오면, 서버는 state(10분, 1회용)를 확인합니다. 그 뒤 Client Secret으로 네이버 토큰을 받아 `/v1/nid/me`에서 회원 ID와 별명(선택 동의)을 읽고, 네이버 토큰은 바로 삭제 요청합니다. 브라우저에는 앱으로 돌아가는 HTML(`intent://naver-login?code=…#Intent;scheme=kkokkkok;package=com.kkokkkok.android;end`, 대체 링크 `kkokkkok://naver-login?code=…`)을 반환합니다. 실패 시 `code` 대신 `error=cancelled|expired|failed`가 붙습니다.
+4. 앱이 `POST /api/auth/naver/exchange` `{"code":"앱 링크의 code","codeVerifier":"1단계 verifier"}`를 보내면 카카오 로그인과 같은 형식의 응답(`provider: "naver"`)을 받습니다. code는 2분 동안 한 번만 쓸 수 있고, verifier가 맞지 않으면 401 `SOCIAL_LOGIN_EXPIRED`가 나며 code도 함께 폐기됩니다.
+
+브라우저와 앱 링크에는 서비스 토큰이나 네이버 토큰이 실리지 않습니다. 다른 앱이 앱 링크를 가로채더라도 verifier가 없으면 로그인할 수 없습니다. 진행 중인 로그인은 서버 메모리에 몇 분만 보관하므로, 서버가 재시작되면 다시 로그인하면 됩니다. 같은 사람이라도 카카오와 네이버는 별도 사용자입니다. 오류: 400 `INVALID_CODE_CHALLENGE`, 429 `TOO_MANY_LOGIN_ATTEMPTS`, 503 `AUTH_NOT_CONFIGURED`(네이버 키 미설정).
+
 **약관 동의(서버 저장).** 현재 약관 버전(`AUTH_TERMS_VERSION`, 기본 `2026-11-13`)에 필수 항목을 동의하지 않은 사용자는 `/api/auth/*` 외 모든 API에서 403 `TERMS_REQUIRED`를 받습니다. 동의 기록은 덮어쓰지 않고 이력으로 쌓입니다. 약관 문구가 바뀌면 버전을 올려 다시 동의를 받습니다.
 
 ```http
