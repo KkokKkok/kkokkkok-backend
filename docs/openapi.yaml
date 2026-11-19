@@ -283,6 +283,25 @@ paths:
               schema: { $ref: '#/components/schemas/InspectionBatch' }
         '404': { $ref: '#/components/responses/NotFound' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+  /api/inspections/{inspectionId}/cancel:
+    parameters:
+      - name: inspectionId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [단독 분석]
+      summary: 기다리지 않는 분석 취소
+      description: >-
+        앱이 결과를 더 기다리지 않을 때(사용자 취소, 대기 시간 초과) 호출합니다.
+        대기 중인 검사는 대기열에서 빠지고 분석 중인 검사는 멈춥니다. 검사는 삭제되지 않고
+        failed 상태로 남으며, 이미 끝난 검사는 바뀌지 않습니다.
+      operationId: cancelInspection
+      responses:
+        '204':
+          description: 취소를 분석 서버에 전달했습니다.
+        '404':
+          description: 검사를 찾을 수 없거나 다른 사용자의 검사입니다.
   /api/inspections/{inspectionId}:
     parameters:
       - name: inspectionId

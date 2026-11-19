@@ -118,6 +118,20 @@ HTTP 200. 상태는 queued/processing/completed/failed. Spring은 ID·상태를 
 
 이미지 URL은 프론트에서 접근 가능한 URL이어야 한다. Node 내부의 상대경로를 그대로 보내면 Spring 경로로 오인될 수 있다. 만료되는 접근 URL 또는 별도 이미지 게이트웨이는 Node 저장 구조 확정 후 구현한다.
 
+## POST /api/inspections/{inspectionId}/cancel
+
+앱이 결과를 더 기다리지 않을 때(사용자 취소, 대기 시간 초과) 호출합니다. 본문은 없고 응답은 `204 No Content`입니다.
+
+- 대기 중인 검사는 대기열에서 빠지고, 분석 중인 검사는 진행 중인 OCR·탐지 프로세스를 끝내고 다음 단계를 시작하지 않습니다. 이미 보낸 모델 호출 한 번은 끝까지 가지만 그 답은 쓰지 않습니다.
+- 취소된 검사는 삭제되지 않고 `GET /api/inspections/{inspectionId}`에서 `status: "failed"`로 조회됩니다.
+- 이미 끝난 검사에 호출하면 아무것도 바뀌지 않고 204입니다.
+- 로그인 모드에서 다른 사용자의 검사이거나 모르는 ID이면 `404 INSPECTION_NOT_FOUND`, 분석 서버가 모르는 ID이면 `404 ANALYSIS_REQUEST_REJECTED`입니다.
+
+```http
+POST /api/inspections/11111111-1111-4111-8111-111111111111/cancel
+X-App-Api-Key: <앱 키>
+```
+
 ## GET /api/inspections?assetId={assetId}
 
 특정 자산에서 실행된 분석 작업을 최근 요청 순으로 반환한다. 이 목록은 Spring DB에 마지막으로 기록된 상태이며 Node 상태를 일괄 조회하지 않는다. `inspectionId`가 없는 `submitting` 항목은 요청이 전달됐는지 아직 확정되지 않은 작업이다.
@@ -208,6 +222,15 @@ Content-Type: application/json
 ```
 
 분석 단서의 좌표 원점은 왼쪽 위, x는 오른쪽으로, y는 아래쪽으로 증가합니다. 사진은 EXIF 방향을 보정한 기준으로 좌표를 mask에 옮깁니다. 단서 ID는 `riskFactors`와 bbox가 있는 `visualObservations`에서 가져올 수 있습니다. 관찰 결과를 그대로 선택하는 경우 해당 관찰 ID를 보냅니다. 서버는 양쪽 목록을 확인하고 좌표를 검증한 뒤 선택 영역을 하나의 mask로 합칩니다.
+
+선택한 단서에 분석 서버가 준 `regions[]`가 있으면 bbox 사각형 대신 그 모양으로 편집 영역을 만듭니다. 요청 형식은 그대로이며(`cueIds`만 보냄) 서버가 분석 결과에서 읽습니다.
+
+| `regions[].kind` | 사용하는 값 | 편집 영역 |
+| --- | --- | --- |
+| `text` | `polygon`: `[[x,y],…]` 0~1 정규화 꼭짓점 3~64개 | 꼭짓점을 이은 다각형 |
+| `object` | `mask`: `{"size":[높이,너비],"counts":[…]}`. `counts`는 사진 전체를 줄인 격자를 행 순서로 읽은 연속 길이이며 첫 값은 비어 있는 칸 수 | 채워진 칸을 사진 크기로 늘린 영역 |
+
+단서의 `bbox` 안에 들어 있는 region만 사용합니다(허용 오차 0.002). 모양이 없거나 형식이 맞지 않으면(꼭짓점 수, `counts` 합이 높이×너비와 다름 등) 그 region은 건너뛰고, 쓸 수 있는 모양이 하나도 없으면 기존처럼 `bbox` 사각형을 씁니다.
 
 실제 provider 설정 예시는 `.env.example`을 참고합니다. `EDITING_PROVIDER=openai`와 키가 설정된 경우에만 유료 이미지 편집 요청을 보냅니다. 기본 model은 `gpt-image-2.5-sunburst`, 품질은 `high`입니다. 실제 편집은 JPEG/PNG 입력을 지원하며, 현재 provider는 WebP 디코딩을 지원하지 않습니다.
 
