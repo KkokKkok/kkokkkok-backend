@@ -44,6 +44,16 @@ public class InspectionService {
         return converter.withAssetId(result,store.assetIdFor(result.inspectionId()));
     }
 
+    /** The app gave up waiting (cancelled or timed out): the analysis server stops working on it. */
+    public void cancel(UUID id) {
+        UUID assetId = store.assetIdFor(id);
+        if (ownership.current() != null) {
+            if (assetId == null) throw new ApiFailure(404,"INSPECTION_NOT_FOUND","분석 작업을 찾을 수 없습니다.");
+            assets.get(assetId);
+        }
+        client.cancel(id);
+    }
+
     public List<InspectionHistoryItem> history(UUID assetId) {
         assets.get(assetId); // Fail clearly for an unknown asset instead of returning an ambiguous empty list.
         return store.historyFor(assetId).stream().map(InspectionHistoryItem::from).toList();

@@ -19,6 +19,7 @@ class InspectionFlowTest {
     static final UUID JOB=UUID.randomUUID();
     static final AtomicInteger POSTS=new AtomicInteger();
     static final AtomicInteger NODE_STATUS=new AtomicInteger(200);
+    static final java.util.List<String> CANCELS=new java.util.concurrent.CopyOnWriteArrayList<>();
     static final HttpServer NODE=startNode();
     @Value("${local.server.port}") int port;
     @Autowired InspectionRepository repository;
@@ -29,7 +30,8 @@ class InspectionFlowTest {
             var server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
             server.createContext("/api/inspections",e->{
                 e.getRequestBody().readAllBytes();
-                boolean post=e.getRequestMethod().equals("POST"); if(post) POSTS.incrementAndGet();
+                boolean post=e.getRequestMethod().equals("POST");
+                if(post&&e.getRequestURI().getPath().endsWith("/cancel")) CANCELS.add(e.getRequestURI().getPath()); else if(post) POSTS.incrementAndGet();
                 String json=NODE_STATUS.get()!=200?"private upstream debug":
                     "{\"inspectionId\":\""+JOB+"\",\"status\":\""+(post?"queued":"completed")+"\",\"riskFactors\":[],\"riskSummary\":{\"score\":null}}";
                 byte[] body=json.getBytes(StandardCharsets.UTF_8);
@@ -95,6 +97,11 @@ class InspectionFlowTest {
             .header("X-App-Api-Key","test-key").header("Content-Type","application/json")
             .POST(HttpRequest.BodyPublishers.ofString("{}")).build();
         assertEquals(400,http.send(invalidPost,HttpResponse.BodyHandlers.ofString()).statusCode());
+        // Giving up on an inspection is passed on to the analysis server, and needs the app key like the rest.
+        var cancel=HttpRequest.newBuilder(URI.create(uri+"/cancel")).POST(HttpRequest.BodyPublishers.noBody());
+        assertEquals(401,http.send(cancel.build(),HttpResponse.BodyHandlers.ofString()).statusCode());
+        assertEquals(204,http.send(cancel.header("X-App-Api-Key","test-key").build(),HttpResponse.BodyHandlers.ofString()).statusCode());
+        assertEquals(java.util.List.of("/api/inspections/"+JOB+"/cancel"),CANCELS);
         NODE_STATUS.set(500);
         var failed=http.send(get,HttpResponse.BodyHandlers.ofString());
         assertEquals(502,failed.statusCode());assertFalse(failed.body().contains("private upstream"));
