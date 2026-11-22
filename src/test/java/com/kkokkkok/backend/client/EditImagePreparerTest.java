@@ -44,6 +44,52 @@ class EditImagePreparerTest {
         for(int y=0;y<80;y++) for(int x=0;x<40;x++)
             assertEquals(y<40 || (x>=20 && y>=60), (mask.getRGB(x,y)>>>24)==0);
     }
+
+    @Test void textCueClearsItsPolygonsAndNotTheRestOfItsBox() throws Exception {
+        // A slanted line: the box is the whole lower-left half square, the polygon only a triangle of it.
+        Map<String,Object> cue = Map.of("id","synthetic","type","text","coordinateSpace","analysis-normalized",
+                "bbox",List.of(0.0,0.0,.5,.5),
+                "regions",List.of(Map.of("kind","text","bbox",List.of(0.0,0.0,.5,.5),
+                        "polygon",List.of(List.of(0.0,0.0),List.of(.5,0.0),List.of(0.0,.5)))));
+        BufferedImage mask = mask(100,100,List.of(cue));
+        assertTrue(cleared(mask,10,10));
+        assertFalse(cleared(mask,45,45));   // inside the box, outside the polygon
+        assertFalse(cleared(mask,70,70));
+    }
+
+    @Test void objectCueClearsItsMaskCellsScaledToThePhoto() throws Exception {
+        // 4 columns x 2 rows over an 80x40 photo; set cells: row 0 column 3 and row 1 column 0 (one run
+        // across the row end) -> counts 3 unset, 2 set, 3 unset.
+        Map<String,Object> cue = Map.of("id","synthetic","type","object","coordinateSpace","analysis-normalized",
+                "bbox",List.of(0.0,0.0,1.0,1.0),
+                "regions",List.of(Map.of("kind","object","bbox",List.of(0.0,0.0,1.0,1.0),
+                        "mask",Map.of("size",List.of(2,4),"counts",List.of(3,2,3)))));
+        BufferedImage mask = mask(80,40,List.of(cue));
+        for(int y=0;y<40;y++) for(int x=0;x<80;x++)
+            assertEquals((y<20 && x>=60) || (y>=20 && x<20), cleared(mask,x,y), x+","+y);
+    }
+
+    @Test void regionOutsideTheCueBoxOrMalformedLeavesTheBox() throws Exception {
+        Map<String,Object> cue = Map.of("id","synthetic","type","object","coordinateSpace","analysis-normalized",
+                "bbox",List.of(.25,.25,.5,.5),
+                "regions",List.of(
+                        // another phrase's detection elsewhere in the photo
+                        Map.of("kind","object","bbox",List.of(.6,.6,.9,.9),
+                                "mask",Map.of("size",List.of(1,1),"counts",List.of(0,1))),
+                        // run lengths that do not add up to the grid
+                        Map.of("kind","object","bbox",List.of(.25,.25,.5,.5),
+                                "mask",Map.of("size",List.of(2,2),"counts",List.of(1,1))),
+                        Map.of("kind","text","bbox",List.of(.25,.25,.5,.5),"polygon",List.of(List.of(.3,.3)))));
+        BufferedImage mask = mask(40,40,List.of(cue));
+        for(int y=0;y<40;y++) for(int x=0;x<40;x++)
+            assertEquals(x>=10 && x<20 && y>=10 && y<20, cleared(mask,x,y), x+","+y);
+    }
+
+    private BufferedImage mask(int width,int height,List<Map<String,Object>> cues) throws Exception {
+        var source = new BufferedImage(width,height,BufferedImage.TYPE_INT_RGB);
+        return ImageIO.read(new ByteArrayInputStream(prepare(encode(source,"png"),"image/png",cues).maskPng()));
+    }
+    private boolean cleared(BufferedImage mask,int x,int y) { return (mask.getRGB(x,y)>>>24)==0; }
     private PreparedEditImage prepare(byte[] bytes,String type,List<Map<String,Object>> cues) {
         return new EditImagePreparer().prepare(new EditSubmission(UUID.randomUUID(),bytes,type,cues,"",50));
     }

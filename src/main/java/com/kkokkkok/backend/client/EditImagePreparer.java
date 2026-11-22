@@ -20,7 +20,10 @@ import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 import org.springframework.stereotype.Component;
 
-/** Normalizes the EXIF orientation and turns selected normalized bbox values into one alpha mask. */
+/**
+ * Normalizes the EXIF orientation and turns the selected cues' areas into one alpha mask: a text cue's
+ * OCR polygons, an object cue's segmentation mask, and the bbox for a cue that has neither.
+ */
 @Component
 class EditImagePreparer {
     private static final long MAX_PIXELS = 24_000_000L;
@@ -50,6 +53,13 @@ class EditImagePreparer {
             for (Map<String, Object> cue : submission.selectedCues()) {
                 if (isMetadataOnly(cue)) continue;
                 double[] bbox = readBbox(cue);
+                // The exact area when the analysis gave one (text polygon, object mask); else the box.
+                var shapes = EditCueShapes.of(cue, bbox);
+                if (!shapes.isEmpty()) {
+                    for (var shape : shapes) shape.fill(graphics, mask.getWidth(), mask.getHeight());
+                    visualCues.add(cue);
+                    continue;
+                }
                 int left = clamp((int) Math.floor(bbox[0] * mask.getWidth()), 0, mask.getWidth() - 1);
                 int top = clamp((int) Math.floor(bbox[1] * mask.getHeight()), 0, mask.getHeight() - 1);
                 int right = clamp((int) Math.ceil(bbox[2] * mask.getWidth()), left + 1, mask.getWidth());
