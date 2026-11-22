@@ -59,8 +59,8 @@ class OpenAiEditClient implements EditClient {
         if (apiKey == null || apiKey.isBlank())
             throw new ApiFailure(503, "EDITING_NOT_CONFIGURED", "보호 편집 API 키가 설정되지 않았습니다.");
         byte[] responseImage = requestEdit(prepared, promptBuilder.build(submission, prepared.visualCues()));
-        byte[] sanitized = imagePreparer.sanitizeGeneratedImage(responseImage);
-        return new EditResult(sanitized, "image/png", false, model, null);
+        var composed = imagePreparer.compose(prepared, responseImage);
+        return new EditResult(composed.bytes(), composed.contentType(), false, model, null);
     }
 
     private byte[] requestEdit(PreparedEditImage prepared, String prompt) {

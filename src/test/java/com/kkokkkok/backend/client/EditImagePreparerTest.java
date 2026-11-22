@@ -85,6 +85,61 @@ class EditImagePreparerTest {
             assertEquals(x>=10 && x<20 && y>=10 && y<20, cleared(mask,x,y), x+","+y);
     }
 
+    @Test void modelMaskGrowsBeyondTheClueShapeOnRealSizedPhotos() throws Exception {
+        // 400x400: margin 3px + fade 2px -> the model repaints up to 5px around the 160..240 box.
+        BufferedImage mask = mask(400,400,List.of(cue(.4,.4,.6,.6)));
+        assertTrue(cleared(mask,200,200));
+        assertTrue(cleared(mask,156,200));
+        assertTrue(cleared(mask,244,200));
+        assertFalse(cleared(mask,245,245));   // the corner is rounded, not squared off
+        assertFalse(cleared(mask,152,200));
+        assertFalse(cleared(mask,100,100));
+    }
+
+    @Test void composeKeepsEveryPixelOutsideTheEditAreaAndUsesTheEditInside() throws Exception {
+        int size=400;
+        var random=new java.util.Random(7);
+        BufferedImage source=new BufferedImage(size,size,BufferedImage.TYPE_INT_RGB);
+        for(int y=0;y<size;y++) for(int x=0;x<size;x++)
+            source.setRGB(x,y,new Color(40+random.nextInt(150),40+random.nextInt(150),40+random.nextInt(150)).getRGB());
+        var preparer=new EditImagePreparer();
+        var prepared=preparer.prepare(new EditSubmission(UUID.randomUUID(),encode(source,"png"),"image/png",
+                List.of(cue(.4,.4,.6,.6)),"",50));
+
+        // The "model": repaints the whole photo 20 levels brighter, at another size, with the clue turned blue.
+        int out=300;
+        BufferedImage generated=new BufferedImage(out,out,BufferedImage.TYPE_INT_RGB);
+        for(int y=0;y<out;y++) for(int x=0;x<out;x++) {
+            boolean clue=x>=out*.4 && x<out*.6 && y>=out*.4 && y<out*.6;
+            Color base=new Color(source.getRGB(x*size/out,y*size/out));
+            generated.setRGB(x,y,clue ? new Color(20,20,220).getRGB()
+                    : new Color(base.getRed()+20,base.getGreen()+20,base.getBlue()+20).getRGB());
+        }
+        var edited=preparer.compose(prepared,encode(generated,"png"));
+        assertEquals("image/png",edited.contentType());
+        BufferedImage result=ImageIO.read(new ByteArrayInputStream(edited.bytes()));
+        assertEquals(size,result.getWidth());assertEquals(size,result.getHeight());
+
+        int reach=prepared.grow()+prepared.feather();
+        for(int y=0;y<size;y++) for(int x=0;x<size;x++) {
+            boolean outside=x<160-reach-1 || x>=240+reach+1 || y<160-reach-1 || y>=240+reach+1;
+            if(outside) assertEquals(source.getRGB(x,y),result.getRGB(x,y),x+","+y);
+        }
+        // Inside: the edit, with the +20 tone shift taken back out by matching the ring outside the mask.
+        Color center=new Color(result.getRGB(200,200));
+        assertTrue(Math.abs(center.getRed())<=4 && Math.abs(center.getGreen())<=4 && Math.abs(center.getBlue()-200)<=4,center.toString());
+    }
+
+    @Test void blendWeightIsFullInsideTheMarginAndFadesToZero() {
+        assertEquals(1.0,EditComposite.weight(0,9,5));
+        assertEquals(1.0,EditComposite.weight(9*3,9,5));
+        double mid=EditComposite.weight(11*3,9,5);
+        assertTrue(mid>0 && mid<1);
+        assertEquals(0.0,EditComposite.weight(14*3,9,5));
+        assertEquals(1.0,EditComposite.weight(0,0,0));
+        assertEquals(0.0,EditComposite.weight(1,0,0));
+    }
+
     private BufferedImage mask(int width,int height,List<Map<String,Object>> cues) throws Exception {
         var source = new BufferedImage(width,height,BufferedImage.TYPE_INT_RGB);
         return ImageIO.read(new ByteArrayInputStream(prepare(encode(source,"png"),"image/png",cues).maskPng()));
