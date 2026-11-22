@@ -15,7 +15,10 @@ import java.util.Iterator;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 import org.springframework.stereotype.Component;
@@ -71,9 +74,45 @@ class EditImagePreparer {
             graphics.dispose();
         }
 
-        byte[] maskPng = visualCues.isEmpty() ? null : encodePng(mask);
-        return new PreparedEditImage(imagePng, maskPng, oriented.getWidth(), oriented.getHeight(), List.copyOf(visualCues));
+        int width = oriented.getWidth(), height = oriented.getHeight();
+        if (visualCues.isEmpty())
+            return new PreparedEditImage(imagePng, null, width, height, List.of(), oriented, null, 0, 0);
+
+        // Grow the exact clue shapes so glyph edges and outlines are repainted too, and remember each pixel's
+        // distance to them so the edit can be blended back only there.
+        int[] exact = mask.getRGB(0, 0, width, height, null, 0, width);
+        boolean[] region = new boolean[exact.length];
+        for (int i = 0; i < exact.length; i++) region[i] = (exact[i] >>> 24) == 0;
+        int grow = EditComposite.grow(width, height), feather = EditComposite.feather(width, height);
+        int[] distance = EditComposite.distances(region, width, height, grow + feather + 64);
+        int[] modelMask = new int[exact.length];
+        for (int i = 0; i < exact.length; i++)
+            modelMask[i] = EditComposite.inModelMask(distance[i], grow, feather) ? 0 : 0xFF000000;
+        mask.setRGB(0, 0, width, height, modelMask, 0, width);
+        return new PreparedEditImage(imagePng, encodePng(mask), width, height, List.copyOf(visualCues),
+                oriented, distance, grow, feather);
     }
+
+    /**
+     * The original photo with the editor's output used only inside the (grown, faded) clue areas, at the
+     * original size. Stored as PNG, or as a high-quality JPEG when a large photo's PNG would exceed the limit.
+     */
+    EditedImage compose(PreparedEditImage prepared, byte[] generated) {
+        BufferedImage decoded = decode(generated);
+        if ((long) decoded.getWidth() * decoded.getHeight() > MAX_PIXELS)
+            throw new ApiFailure(502, "INVALID_EDIT_OUTPUT", "편집 결과의 해상도가 허용 범위를 벗어났습니다.");
+        BufferedImage result = EditComposite.blend(prepared.source(), decoded, prepared.distance(),
+                prepared.grow(), prepared.feather());
+        byte[] png = encodePng(result);
+        if (png.length <= MAX_STORED_IMAGE_BYTES) return new EditedImage(png, "image/png");
+        if (!result.getColorModel().hasAlpha()) {
+            byte[] jpeg = encodeJpeg(result, 0.95f);
+            if (jpeg.length <= MAX_STORED_IMAGE_BYTES) return new EditedImage(jpeg, "image/jpeg");
+        }
+        throw new ApiFailure(413, "EDIT_OUTPUT_TOO_LARGE", "수정 결과 이미지는 10MB 이하여야 합니다.");
+    }
+
+    record EditedImage(byte[] bytes, String contentType) {}
 
     byte[] sanitizeGeneratedImage(byte[] bytes) {
         BufferedImage decoded = decode(bytes);
@@ -118,6 +157,25 @@ class EditImagePreparer {
             return output.toByteArray();
         } catch (IOException failure) {
             throw new ApiFailure(502, "EDIT_IMAGE_PREPARATION_FAILED", "편집용 사진을 준비하지 못했습니다.");
+        }
+    }
+
+    private byte[] encodeJpeg(BufferedImage image, float quality) {
+        var writers = ImageIO.getImageWritersByFormatName("jpeg");
+        if (!writers.hasNext()) throw new ApiFailure(502, "EDIT_IMAGE_PREPARATION_FAILED", "편집 결과를 저장하지 못했습니다.");
+        ImageWriter writer = writers.next();
+        try (var output = new ByteArrayOutputStream(); var stream = ImageIO.createImageOutputStream(output)) {
+            ImageWriteParam param = writer.getDefaultWriteParam();
+            param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+            param.setCompressionQuality(quality);
+            writer.setOutput(stream);
+            writer.write(null, new IIOImage(image, null, null), param);
+            stream.flush();
+            return output.toByteArray();
+        } catch (IOException failure) {
+            throw new ApiFailure(502, "EDIT_IMAGE_PREPARATION_FAILED", "편집 결과를 저장하지 못했습니다.");
+        } finally {
+            writer.dispose();
         }
     }
 
