@@ -118,6 +118,20 @@ HTTP 200. 상태는 queued/processing/completed/failed. Spring은 ID·상태를 
 
 이미지 URL은 프론트에서 접근 가능한 URL이어야 한다. Node 내부의 상대경로를 그대로 보내면 Spring 경로로 오인될 수 있다. 만료되는 접근 URL 또는 별도 이미지 게이트웨이는 Node 저장 구조 확정 후 구현한다.
 
+## POST /api/inspections/{inspectionId}/cancel
+
+앱이 결과를 더 기다리지 않을 때(사용자 취소, 대기 시간 초과) 호출합니다. 본문은 없고 응답은 `204 No Content`입니다.
+
+- 대기 중인 검사는 대기열에서 빠지고, 분석 중인 검사는 진행 중인 OCR·탐지 프로세스를 끝내고 다음 단계를 시작하지 않습니다. 이미 보낸 모델 호출 한 번은 끝까지 가지만 그 답은 쓰지 않습니다.
+- 취소된 검사는 삭제되지 않고 `GET /api/inspections/{inspectionId}`에서 `status: "failed"`로 조회됩니다.
+- 이미 끝난 검사에 호출하면 아무것도 바뀌지 않고 204입니다.
+- 로그인 모드에서 다른 사용자의 검사이거나 모르는 ID이면 `404 INSPECTION_NOT_FOUND`, 분석 서버가 모르는 ID이면 `404 ANALYSIS_REQUEST_REJECTED`입니다.
+
+```http
+POST /api/inspections/11111111-1111-4111-8111-111111111111/cancel
+X-App-Api-Key: <앱 키>
+```
+
 ## GET /api/inspections?assetId={assetId}
 
 특정 자산에서 실행된 분석 작업을 최근 요청 순으로 반환한다. 이 목록은 Spring DB에 마지막으로 기록된 상태이며 Node 상태를 일괄 조회하지 않는다. `inspectionId`가 없는 `submitting` 항목은 요청이 전달됐는지 아직 확정되지 않은 작업이다.

@@ -24,6 +24,9 @@ public class InspectionController {
     @GetMapping("/{id}")
     public InspectionResponse get(@PathVariable UUID id) {return service.get(id);}
 
+    @PostMapping("/{id}/cancel")
+    public ResponseEntity<Void> cancel(@PathVariable UUID id) { service.cancel(id); return ResponseEntity.noContent().build(); }
+
     @GetMapping(params = "assetId")
     public List<InspectionHistoryItem> history(@RequestParam UUID assetId) { return service.history(assetId); }
 }

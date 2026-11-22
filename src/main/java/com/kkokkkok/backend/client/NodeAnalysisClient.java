@@ -39,6 +39,9 @@ public class NodeAnalysisClient implements AnalysisClient {
             .contentType(MediaType.MULTIPART_FORM_DATA).body(parts).retrieve().body(BODY));
     }
     public Map<String,Object> get(UUID id) {return call(()->client.get().uri("/api/inspections/{id}",id).retrieve().body(BODY));}
+    public void cancel(UUID id) {
+        call(() -> { client.post().uri("/api/inspections/{id}/cancel",id).retrieve().toBodilessEntity(); return Map.of(); });
+    }
     public void delete(UUID id) {
         try { call(() -> { client.delete().uri("/api/inspections/{id}",id).retrieve().toBodilessEntity(); return Map.of(); }); }
         catch(ApiFailure failure) { if(failure.status != 404) throw failure; }
