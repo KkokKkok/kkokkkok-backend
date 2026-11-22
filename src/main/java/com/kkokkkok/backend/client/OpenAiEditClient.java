@@ -30,11 +30,13 @@ class OpenAiEditClient implements EditClient {
     private final String quality;
     private final EditImagePreparer imagePreparer;
     private final EditPromptBuilder promptBuilder;
+    private final EditImagePreparer.Framing framing;
 
     OpenAiEditClient(@Value("${editing.openai.api-key:}") String apiKey,
                      @Value("${editing.openai.model:gpt-image-2.5-sunburst}") String model,
                      @Value("${editing.openai.quality:high}") String quality,
                      @Value("${editing.openai.timeout-seconds:300}") int timeoutSeconds,
+                     @Value("${editing.openai.framing:crop}") String framing,
                      EditImagePreparer imagePreparer,
                      EditPromptBuilder promptBuilder) {
         this.apiKey = apiKey;
@@ -42,6 +44,7 @@ class OpenAiEditClient implements EditClient {
         this.quality = quality;
         this.imagePreparer = imagePreparer;
         this.promptBuilder = promptBuilder;
+        this.framing = EditImagePreparer.Framing.valueOf(framing.trim().toUpperCase(java.util.Locale.ROOT));
         if (timeoutSeconds < 1) throw new IllegalArgumentException("editing.openai.timeout-seconds must be positive");
         var factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(Duration.ofSeconds(10));
@@ -51,7 +54,7 @@ class OpenAiEditClient implements EditClient {
 
     @Override
     public EditResult edit(EditSubmission submission) {
-        PreparedEditImage prepared = imagePreparer.prepare(submission);
+        PreparedEditImage prepared = imagePreparer.prepare(submission, framing);
         if (prepared.maskPng() == null) {
             byte[] sanitized = imagePreparer.sanitizeGeneratedImage(prepared.imagePng());
             return new EditResult(sanitized, "image/png", false, "metadata-sanitization-v1", null);
