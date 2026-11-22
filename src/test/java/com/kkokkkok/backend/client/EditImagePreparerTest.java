@@ -130,6 +130,42 @@ class EditImagePreparerTest {
         assertTrue(Math.abs(center.getRed())<=4 && Math.abs(center.getGreen())<=4 && Math.abs(center.getBlue()-200)<=4,center.toString());
     }
 
+    @Test void cropSendsOnlyTheClueAreaWithContextAndBlendsItBackInPlace() throws Exception {
+        int size=1000;
+        BufferedImage source=new BufferedImage(size,size,BufferedImage.TYPE_INT_RGB);
+        for(int y=0;y<size;y++) for(int x=0;x<size;x++) source.setRGB(x,y,new Color(60+(x*7+y*3)%120,90,120).getRGB());
+        var preparer=new EditImagePreparer();
+        var prepared=preparer.prepare(new EditSubmission(UUID.randomUUID(),encode(source,"png"),"image/png",
+                List.of(cue(.45,.45,.55,.55)),"",50),EditImagePreparer.Framing.CROP);
+        var frame=prepared.frame();
+        assertTrue(frame.width<size/2 && frame.height<size/2, frame.toString());
+        assertTrue(frame.contains(new java.awt.Rectangle(450,450,100,100)));
+        BufferedImage model=ImageIO.read(new ByteArrayInputStream(prepared.imagePng()));
+        assertEquals(EditImagePreparer.MODEL_MIN_LONG_SIDE,Math.max(model.getWidth(),model.getHeight()));
+        BufferedImage mask=ImageIO.read(new ByteArrayInputStream(prepared.maskPng()));
+        assertEquals(model.getWidth(),mask.getWidth());
+        assertTrue(cleared(mask,mask.getWidth()/2,mask.getHeight()/2));
+        assertFalse(cleared(mask,2,2));
+
+        // The "model" returns the crop, all green, at its own size.
+        BufferedImage generated=new BufferedImage(700,700,BufferedImage.TYPE_INT_RGB);
+        for(int y=0;y<700;y++) for(int x=0;x<700;x++) generated.setRGB(x,y,Color.GREEN.getRGB());
+        BufferedImage result=ImageIO.read(new ByteArrayInputStream(preparer.compose(prepared,encode(generated,"png")).bytes()));
+        assertEquals(size,result.getWidth());
+        assertTrue(new Color(result.getRGB(500,500)).getGreen()>new Color(source.getRGB(500,500)).getGreen());
+        int reach=prepared.grow()+prepared.feather()+1;
+        for(int y=0;y<size;y++) for(int x=0;x<size;x++)
+            if(x<450-reach||x>=550+reach||y<450-reach||y>=550+reach) assertEquals(source.getRGB(x,y),result.getRGB(x,y),x+","+y);
+    }
+
+    @Test void largePhotoIsSentToTheEditorAtMostTheModelSize() throws Exception {
+        BufferedImage source=new BufferedImage(3000,1500,BufferedImage.TYPE_INT_RGB);
+        var prepared=prepare(encode(source,"png"),"image/png",List.of(cue(.1,.1,.2,.2)));
+        assertEquals(3000,prepared.width());
+        BufferedImage model=ImageIO.read(new ByteArrayInputStream(prepared.imagePng()));
+        assertEquals(2048,model.getWidth());assertEquals(1024,model.getHeight());
+    }
+
     @Test void blendWeightIsFullInsideTheMarginAndFadesToZero() {
         assertEquals(1.0,EditComposite.weight(0,9,5));
         assertEquals(1.0,EditComposite.weight(9*3,9,5));

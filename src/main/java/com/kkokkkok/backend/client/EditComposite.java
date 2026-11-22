@@ -1,13 +1,14 @@
 package com.kkokkkok.backend.client;
 
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 
 /**
- * Keeps an image edit inside the clue areas. The model repaints the whole photo (and may return it at another
- * size), so its output is only used inside the mask: the selected clue shapes, grown by a margin so glyph edges
- * and outlines go too, then faded out over a few pixels. Everything else is the original pixel, unchanged.
+ * Keeps an image edit inside the clue areas. The model repaints the whole image it is given (and may return it at
+ * another size), so its output is only used inside the mask: the selected clue shapes, grown by a margin so glyph
+ * edges and outlines go too, then faded out over a few pixels. Everything else is the original pixel, unchanged.
  */
 final class EditComposite {
     private static final int UNIT = 3;          // chamfer 3-4: one pixel step = 3, one diagonal step = 4
@@ -24,10 +25,10 @@ final class EditComposite {
     private static int ring(int width, int height) { return Math.max(2, (int) Math.floor(Math.min(width, height) * 0.01)); }
 
     /** Approximate distance (in thirds of a pixel) from each pixel to the nearest clue pixel, capped at {@code cap} pixels. */
-    static int[] distances(boolean[] region, int width, int height, int cap) {
-        int limit = (cap + 1) * UNIT;
-        int[] d = new int[width * height];
-        for (int i = 0; i < d.length; i++) d[i] = region[i] ? 0 : limit;
+    static short[] distances(boolean[] region, int width, int height, int cap) {
+        int limit = Math.min(Short.MAX_VALUE, (cap + 1) * UNIT);
+        short[] d = new short[width * height];
+        for (int i = 0; i < d.length; i++) d[i] = region[i] ? 0 : (short) limit;
         for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) {
             int i = y * width + x, v = d[i];
             if (v == 0) continue;
@@ -37,7 +38,7 @@ final class EditComposite {
                 if (x > 0) v = Math.min(v, d[i - width - 1] + 4);
                 if (x < width - 1) v = Math.min(v, d[i - width + 1] + 4);
             }
-            d[i] = Math.min(v, limit);
+            d[i] = (short) Math.min(v, limit);
         }
         for (int y = height - 1; y >= 0; y--) for (int x = width - 1; x >= 0; x--) {
             int i = y * width + x, v = d[i];
@@ -48,7 +49,7 @@ final class EditComposite {
                 if (x < width - 1) v = Math.min(v, d[i + width + 1] + 4);
                 if (x > 0) v = Math.min(v, d[i + width - 1] + 4);
             }
-            d[i] = Math.min(v, limit);
+            d[i] = (short) Math.min(v, limit);
         }
         return d;
     }
@@ -64,47 +65,45 @@ final class EditComposite {
         return (grow + feather - pixels) / feather;
     }
 
-    /** The original with the edit blended in only where {@link #weight} is above 0, at the original size. */
-    static BufferedImage blend(BufferedImage source, BufferedImage generated, int[] distance, int grow, int feather) {
-        int width = source.getWidth(), height = source.getHeight();
-        BufferedImage edited = scale(generated, width, height);
-        int[] original = source.getRGB(0, 0, width, height, null, 0, width);
-        int[] repaint = edited.getRGB(0, 0, width, height, null, 0, width);
-
-        // Models often shift the whole photo's tone a little; match the edit to the original just outside the mask.
-        int inner = (grow + feather) * UNIT, outer = (grow + feather + ring(width, height)) * UNIT;
-        long[] sum = new long[3];
-        long count = 0;
-        for (int i = 0; i < original.length; i++) {
-            if (distance[i] <= inner || distance[i] > outer) continue;
-            for (int c = 0; c < 3; c++) sum[c] += channel(original[i], c) - channel(repaint[i], c);
-            count++;
+    /**
+     * The part of the photo to send when cropping: the edit area plus context on every side (half the area's own
+     * size, at least 12% of the photo's short side) so the model sees what to continue, and always including the
+     * colour-matching ring.
+     */
+    static Rectangle cropAround(short[] distance, int width, int height, int grow, int feather) {
+        int reach = (grow + feather) * UNIT;
+        int left = width, top = height, right = -1, bottom = -1;
+        for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) {
+            if (distance[y * width + x] > reach) continue;
+            if (x < left) left = x; if (x > right) right = x;
+            if (y < top) top = y; if (y > bottom) bottom = y;
         }
-        int[] shift = new int[3];
-        if (count > 0) for (int c = 0; c < 3; c++)
-            shift[c] = (int) Math.max(-MAX_COLOR_SHIFT, Math.min(MAX_COLOR_SHIFT, Math.round(sum[c] / (double) count)));
-
-        boolean alpha = source.getColorModel().hasAlpha();
-        BufferedImage result = new BufferedImage(width, height, alpha ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
-        int[] out = new int[original.length];
-        for (int i = 0; i < original.length; i++) {
-            double w = weight(distance[i], grow, feather);
-            if (w <= 0) { out[i] = original[i]; continue; }
-            int pixel = original[i] & 0xFF000000;
-            for (int c = 0; c < 3; c++) {
-                int edit = clamp(channel(repaint[i], c) + shift[c]);
-                int value = (int) Math.round(w * edit + (1 - w) * channel(original[i], c));
-                pixel |= clamp(value) << (16 - 8 * c);
-            }
-            out[i] = pixel;
-        }
-        result.setRGB(0, 0, width, height, out, 0, width);
-        return result;
+        if (right < 0) return new Rectangle(0, 0, width, height);
+        return pad(new Rectangle(left, top, right - left + 1, bottom - top + 1), width, height);
     }
 
-    private static BufferedImage scale(BufferedImage image, int width, int height) {
-        if (image.getWidth() == width && image.getHeight() == height) return image;
-        BufferedImage scaled = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+    private static Rectangle pad(Rectangle box, int width, int height) {
+        int floor = Math.max((int) (Math.min(width, height) * 0.12), ring(width, height) + 2);
+        int padX = Math.max(box.width / 2, floor), padY = Math.max(box.height / 2, floor);
+        int x0 = Math.max(0, box.x - padX), y0 = Math.max(0, box.y - padY);
+        int x1 = Math.min(width, box.x + box.width + padX), y1 = Math.min(height, box.y + box.height + padY);
+        return new Rectangle(x0, y0, x1 - x0, y1 - y0);
+    }
+
+    /** High-quality resize (halving steps for large reductions, then bicubic). */
+    static BufferedImage resize(BufferedImage image, int width, int height) {
+        BufferedImage current = image;
+        int w = image.getWidth(), h = image.getHeight();
+        while (w / 2 >= width && h / 2 >= height) {
+            w /= 2; h /= 2;
+            current = draw(current, w, h);
+        }
+        return current.getWidth() == width && current.getHeight() == height && current != image
+                ? current : draw(current, width, height);
+    }
+
+    private static BufferedImage draw(BufferedImage image, int width, int height) {
+        BufferedImage scaled = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         Graphics2D graphics = scaled.createGraphics();
         try {
             graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
@@ -114,6 +113,81 @@ final class EditComposite {
             graphics.dispose();
         }
         return scaled;
+    }
+
+    /**
+     * The original with the edit blended in only where {@link #weight} is above 0, at the original size.
+     * {@code generated} shows {@code frame} (original pixels) at whatever size the model returned.
+     */
+    static BufferedImage blend(BufferedImage source, BufferedImage generated, short[] distance, int grow, int feather,
+                               Rectangle frame) {
+        int width = source.getWidth(), height = source.getHeight();
+        int gw = generated.getWidth(), gh = generated.getHeight();
+        int[] gen = generated.getRGB(0, 0, gw, gh, null, 0, gw);
+        double sx = gw / (double) frame.width, sy = gh / (double) frame.height;
+
+        // Models often shift the whole image's tone a little; match the edit to the original just outside the mask.
+        int inner = (grow + feather) * UNIT, outer = (grow + feather + ring(width, height)) * UNIT;
+        long[] sum = new long[3];
+        long count = 0;
+        int[] row = new int[width];
+        for (int y = frame.y; y < frame.y + frame.height; y++) {
+            source.getRGB(0, y, width, 1, row, 0, width);
+            for (int x = frame.x; x < frame.x + frame.width; x++) {
+                int d = distance[y * width + x];
+                if (d <= inner || d > outer) continue;
+                int edit = sample(gen, gw, gh, (x - frame.x + 0.5) * sx - 0.5, (y - frame.y + 0.5) * sy - 0.5);
+                for (int c = 0; c < 3; c++) sum[c] += channel(row[x], c) - channel(edit, c);
+                count++;
+            }
+        }
+        int[] shift = new int[3];
+        if (count > 0) for (int c = 0; c < 3; c++)
+            shift[c] = (int) Math.max(-MAX_COLOR_SHIFT, Math.min(MAX_COLOR_SHIFT, Math.round(sum[c] / (double) count)));
+
+        boolean alpha = source.getColorModel().hasAlpha();
+        BufferedImage result = new BufferedImage(width, height, alpha ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
+        for (int y = 0; y < height; y++) {
+            source.getRGB(0, y, width, 1, row, 0, width);
+            boolean inFrame = y >= frame.y && y < frame.y + frame.height;
+            if (inFrame) for (int x = frame.x; x < frame.x + frame.width; x++) {
+                double w = weight(distance[y * width + x], grow, feather);
+                if (w <= 0) continue;
+                int edit = sample(gen, gw, gh, (x - frame.x + 0.5) * sx - 0.5, (y - frame.y + 0.5) * sy - 0.5);
+                int pixel = row[x] & 0xFF000000;
+                for (int c = 0; c < 3; c++) {
+                    int value = (int) Math.round(w * clamp(channel(edit, c) + shift[c]) + (1 - w) * channel(row[x], c));
+                    pixel |= clamp(value) << (16 - 8 * c);
+                }
+                row[x] = pixel;
+            }
+            result.setRGB(0, y, width, 1, row, 0, width);
+        }
+        return result;
+    }
+
+    /** Bicubic (Catmull-Rom) sample of an RGB pixel array at fractional coordinates, edges clamped. */
+    private static int sample(int[] pixels, int width, int height, double fx, double fy) {
+        int x0 = (int) Math.floor(fx), y0 = (int) Math.floor(fy);
+        double tx = fx - x0, ty = fy - y0;
+        double[] wx = cubic(tx), wy = cubic(ty);
+        double[] acc = new double[3];
+        for (int j = 0; j < 4; j++) {
+            int yy = Math.max(0, Math.min(height - 1, y0 - 1 + j));
+            for (int i = 0; i < 4; i++) {
+                int xx = Math.max(0, Math.min(width - 1, x0 - 1 + i));
+                int p = pixels[yy * width + xx];
+                double w = wx[i] * wy[j];
+                for (int c = 0; c < 3; c++) acc[c] += w * channel(p, c);
+            }
+        }
+        return (clamp((int) Math.round(acc[0])) << 16) | (clamp((int) Math.round(acc[1])) << 8) | clamp((int) Math.round(acc[2]));
+    }
+
+    private static double[] cubic(double t) {
+        double t2 = t * t, t3 = t2 * t;
+        return new double[]{
+                (-t3 + 2 * t2 - t) / 2, (3 * t3 - 5 * t2 + 2) / 2, (-3 * t3 + 4 * t2 + t) / 2, (t3 - t2) / 2};
     }
 
     private static int channel(int rgb, int c) { return (rgb >> (16 - 8 * c)) & 0xFF; }

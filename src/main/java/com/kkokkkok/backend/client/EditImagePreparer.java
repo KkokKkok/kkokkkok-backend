@@ -6,8 +6,10 @@ import com.kkokkkok.backend.apiPayload.exception.ApiFailure;
 import com.kkokkkok.backend.domain.EditSubmission;
 import java.awt.AlphaComposite;
 import java.awt.Graphics2D;
+import java.awt.Rectangle;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
+import java.awt.image.DataBufferByte;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -29,11 +31,21 @@ import org.springframework.stereotype.Component;
  */
 @Component
 class EditImagePreparer {
-    private static final long MAX_PIXELS = 24_000_000L;
+    private static final long MAX_PIXELS = 50_000_000L;
+    static final int MODEL_LONG_SIDE = 2048;
+    static final int MODEL_MIN_LONG_SIDE = 1024;
     private static final int MAX_PROVIDER_IMAGE_BYTES = 50 * 1024 * 1024;
     private static final int MAX_STORED_IMAGE_BYTES = 10 * 1024 * 1024;
 
-    PreparedEditImage prepare(EditSubmission submission) {
+    PreparedEditImage prepare(EditSubmission submission) { return prepare(submission, Framing.FULL); }
+
+    /**
+     * The upright photo, the image and mask the editor sees, and what is needed to blend its output back.
+     * {@link Framing#FULL} sends the whole photo; {@link Framing#CROP} only the clue areas plus surrounding
+     * context, so the editor's output resolution is spent on the part it changes. Either way the editor's
+     * image is at most {@value #MODEL_LONG_SIDE}px on the long side; blending happens at the original size.
+     */
+    PreparedEditImage prepare(EditSubmission submission, Framing framing) {
         if (!"image/jpeg".equals(submission.contentType()) && !"image/png".equals(submission.contentType()))
             throw new ApiFailure(415, "EDIT_IMAGE_FORMAT_UNSUPPORTED", "실제 보호 편집은 JPEG와 PNG 사진을 지원합니다.");
 
@@ -42,31 +54,27 @@ class EditImagePreparer {
             throw new ApiFailure(413, "EDIT_IMAGE_TOO_LARGE", "보호 편집을 위한 사진 해상도가 너무 큽니다.");
 
         BufferedImage oriented = applyOrientation(source, readOrientation(submission.image()));
-        byte[] imagePng = encodePng(oriented);
-        if (imagePng.length > MAX_PROVIDER_IMAGE_BYTES)
-            throw new ApiFailure(413, "EDIT_IMAGE_TOO_LARGE", "편집용 PNG 사진은 50MB 이하여야 합니다.");
+        int width = oriented.getWidth(), height = oriented.getHeight();
         var visualCues = new ArrayList<Map<String, Object>>();
-        BufferedImage mask = new BufferedImage(oriented.getWidth(), oriented.getHeight(), BufferedImage.TYPE_INT_ARGB);
-        Graphics2D graphics = mask.createGraphics();
+        // Clue shapes drawn white on black at the original size.
+        BufferedImage shapes = new BufferedImage(width, height, BufferedImage.TYPE_BYTE_GRAY);
+        Graphics2D graphics = shapes.createGraphics();
         try {
-            graphics.setComposite(AlphaComposite.Src);
-            graphics.setColor(java.awt.Color.BLACK);
-            graphics.fillRect(0, 0, mask.getWidth(), mask.getHeight());
-            graphics.setComposite(AlphaComposite.Clear);
+            graphics.setColor(java.awt.Color.WHITE);
             for (Map<String, Object> cue : submission.selectedCues()) {
                 if (isMetadataOnly(cue)) continue;
                 double[] bbox = readBbox(cue);
                 // The exact area when the analysis gave one (text polygon, object mask); else the box.
-                var shapes = EditCueShapes.of(cue, bbox);
-                if (!shapes.isEmpty()) {
-                    for (var shape : shapes) shape.fill(graphics, mask.getWidth(), mask.getHeight());
+                var cueShapes = EditCueShapes.of(cue, bbox);
+                if (!cueShapes.isEmpty()) {
+                    for (var shape : cueShapes) shape.fill(graphics, width, height);
                     visualCues.add(cue);
                     continue;
                 }
-                int left = clamp((int) Math.floor(bbox[0] * mask.getWidth()), 0, mask.getWidth() - 1);
-                int top = clamp((int) Math.floor(bbox[1] * mask.getHeight()), 0, mask.getHeight() - 1);
-                int right = clamp((int) Math.ceil(bbox[2] * mask.getWidth()), left + 1, mask.getWidth());
-                int bottom = clamp((int) Math.ceil(bbox[3] * mask.getHeight()), top + 1, mask.getHeight());
+                int left = clamp((int) Math.floor(bbox[0] * width), 0, width - 1);
+                int top = clamp((int) Math.floor(bbox[1] * height), 0, height - 1);
+                int right = clamp((int) Math.ceil(bbox[2] * width), left + 1, width);
+                int bottom = clamp((int) Math.ceil(bbox[3] * height), top + 1, height);
                 graphics.fillRect(left, top, right - left, bottom - top);
                 visualCues.add(cue);
             }
@@ -74,24 +82,60 @@ class EditImagePreparer {
             graphics.dispose();
         }
 
-        int width = oriented.getWidth(), height = oriented.getHeight();
-        if (visualCues.isEmpty())
-            return new PreparedEditImage(imagePng, null, width, height, List.of(), oriented, null, 0, 0);
+        if (visualCues.isEmpty()) {
+            // Metadata-only: the photo is re-encoded at its own size to drop EXIF; nothing goes to the editor.
+            byte[] imagePng = encodePng(oriented);
+            if (imagePng.length > MAX_PROVIDER_IMAGE_BYTES)
+                throw new ApiFailure(413, "EDIT_IMAGE_TOO_LARGE", "편집용 PNG 사진은 50MB 이하여야 합니다.");
+            return new PreparedEditImage(imagePng, null, width, height, List.of(), oriented, null, 0, 0,
+                    new Rectangle(0, 0, width, height));
+        }
 
         // Grow the exact clue shapes so glyph edges and outlines are repainted too, and remember each pixel's
         // distance to them so the edit can be blended back only there.
-        int[] exact = mask.getRGB(0, 0, width, height, null, 0, width);
-        boolean[] region = new boolean[exact.length];
-        for (int i = 0; i < exact.length; i++) region[i] = (exact[i] >>> 24) == 0;
+        byte[] raster = ((DataBufferByte) shapes.getRaster().getDataBuffer()).getData();
+        boolean[] region = new boolean[raster.length];
+        for (int i = 0; i < raster.length; i++) region[i] = raster[i] != 0;
+        shapes = null;
         int grow = EditComposite.grow(width, height), feather = EditComposite.feather(width, height);
-        int[] distance = EditComposite.distances(region, width, height, grow + feather + 64);
-        int[] modelMask = new int[exact.length];
-        for (int i = 0; i < exact.length; i++)
-            modelMask[i] = EditComposite.inModelMask(distance[i], grow, feather) ? 0 : 0xFF000000;
-        mask.setRGB(0, 0, width, height, modelMask, 0, width);
-        return new PreparedEditImage(imagePng, encodePng(mask), width, height, List.copyOf(visualCues),
-                oriented, distance, grow, feather);
+        short[] distance = EditComposite.distances(region, width, height, grow + feather + 64);
+        region = null;
+        Rectangle frame = framing == Framing.CROP
+                ? EditComposite.cropAround(distance, width, height, grow, feather)
+                : new Rectangle(0, 0, width, height);
+        byte[][] model = modelView(oriented, distance, grow, feather, frame, framing == Framing.CROP);
+        return new PreparedEditImage(model[0], model[1], width, height, List.copyOf(visualCues), oriented, distance,
+                grow, feather, frame);
     }
+
+    /**
+     * The editor's view of one frame, at most MODEL_LONG_SIDE on the long side (crops are enlarged to at least
+     * MODEL_MIN_LONG_SIDE so the editor has enough pixels to work with), and the grown mask sampled to match.
+     */
+    private byte[][] modelView(BufferedImage oriented, short[] distance, int grow, int feather, Rectangle frame, boolean crop) {
+        int width = oriented.getWidth(), height = oriented.getHeight();
+        int frameLong = Math.max(frame.width, frame.height);
+        int targetLong = Math.min(MODEL_LONG_SIDE, crop ? Math.max(MODEL_MIN_LONG_SIDE, frameLong) : frameLong);
+        double scale = targetLong / (double) frameLong;
+        int modelWidth = Math.max(1, (int) Math.round(frame.width * scale));
+        int modelHeight = Math.max(1, (int) Math.round(frame.height * scale));
+        BufferedImage modelImage = EditComposite.resize(oriented.getSubimage(frame.x, frame.y, frame.width, frame.height),
+                modelWidth, modelHeight);
+        BufferedImage modelMask = new BufferedImage(modelWidth, modelHeight, BufferedImage.TYPE_INT_ARGB);
+        int[] maskPixels = new int[modelWidth * modelHeight];
+        for (int y = 0; y < modelHeight; y++) {
+            int sy = Math.min(height - 1, frame.y + (int) ((y + 0.5) * frame.height / modelHeight));
+            for (int x = 0; x < modelWidth; x++) {
+                int sx = Math.min(width - 1, frame.x + (int) ((x + 0.5) * frame.width / modelWidth));
+                maskPixels[y * modelWidth + x] = EditComposite.inModelMask(distance[sy * width + sx], grow, feather) ? 0 : 0xFF000000;
+            }
+        }
+        modelMask.setRGB(0, 0, modelWidth, modelHeight, maskPixels, 0, modelWidth);
+        return new byte[][]{encodePng(modelImage), encodePng(modelMask)};
+    }
+
+    /** FULL: the whole photo. CROP: the clue areas with surrounding context (sharper; the default). */
+    enum Framing { FULL, CROP }
 
     /**
      * The original photo with the editor's output used only inside the (grown, faded) clue areas, at the
@@ -101,12 +145,12 @@ class EditImagePreparer {
         BufferedImage decoded = decode(generated);
         if ((long) decoded.getWidth() * decoded.getHeight() > MAX_PIXELS)
             throw new ApiFailure(502, "INVALID_EDIT_OUTPUT", "편집 결과의 해상도가 허용 범위를 벗어났습니다.");
-        BufferedImage result = EditComposite.blend(prepared.source(), decoded, prepared.distance(),
-                prepared.grow(), prepared.feather());
+        BufferedImage result = EditComposite.blend(prepared.source(), decoded, prepared.distance(), prepared.grow(),
+                prepared.feather(), prepared.frame());
         byte[] png = encodePng(result);
         if (png.length <= MAX_STORED_IMAGE_BYTES) return new EditedImage(png, "image/png");
-        if (!result.getColorModel().hasAlpha()) {
-            byte[] jpeg = encodeJpeg(result, 0.95f);
+        if (!result.getColorModel().hasAlpha()) for (float quality : new float[]{0.95f, 0.92f, 0.88f}) {
+            byte[] jpeg = encodeJpeg(result, quality);
             if (jpeg.length <= MAX_STORED_IMAGE_BYTES) return new EditedImage(jpeg, "image/jpeg");
         }
         throw new ApiFailure(413, "EDIT_OUTPUT_TOO_LARGE", "수정 결과 이미지는 10MB 이하여야 합니다.");
