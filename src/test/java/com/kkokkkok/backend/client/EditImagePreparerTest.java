@@ -85,6 +85,112 @@ class EditImagePreparerTest {
             assertEquals(x>=10 && x<20 && y>=10 && y<20, cleared(mask,x,y), x+","+y);
     }
 
+    @Test void verifiedTextLineOutsideTheCueBoxIsTakenButAnUnverifiedOneIsNot() throws Exception {
+        // The cue box holds one name; the same sign's other name (verified by OCR) and a stray line lie elsewhere.
+        Map<String,Object> cue = Map.of("id","synthetic","type","text","coordinateSpace","analysis-normalized",
+                "bbox",List.of(0.0,0.0,.25,.25),
+                "regions",List.of(
+                        Map.of("kind","text","verified",true,"bbox",List.of(0.0,0.0,.25,.25),
+                                "polygon",List.of(List.of(0.0,0.0),List.of(.25,0.0),List.of(.25,.25),List.of(0.0,.25))),
+                        Map.of("kind","text","verified",true,"bbox",List.of(.5,0.0,.75,.25),
+                                "polygon",List.of(List.of(.5,0.0),List.of(.75,0.0),List.of(.75,.25),List.of(.5,.25))),
+                        Map.of("kind","text","verified",false,"bbox",List.of(.5,.5,.75,.75),
+                                "polygon",List.of(List.of(.5,.5),List.of(.75,.5),List.of(.75,.75),List.of(.5,.75)))));
+        BufferedImage mask = mask(40,40,List.of(cue));
+        assertTrue(cleared(mask,5,5));
+        assertTrue(cleared(mask,25,5));
+        assertFalse(cleared(mask,25,25));
+    }
+
+    @Test void objectRegionReachingPastTheCueBoxIsTakenWhenItCoversTheBox() throws Exception {
+        // A sign board (cue box, top half) whose segmentation also has the post below; another object elsewhere.
+        Map<String,Object> cue = Map.of("id","synthetic","type","object","coordinateSpace","analysis-normalized",
+                "bbox",List.of(.25,0.0,.5,.5),
+                "regions",List.of(
+                        Map.of("kind","object","bbox",List.of(.25,0.0,.5,1.0),
+                                "mask",Map.of("size",List.of(1,4),"counts",List.of(1,1,2))),
+                        Map.of("kind","object","bbox",List.of(.4,.25,1.0,1.0),
+                                "mask",Map.of("size",List.of(1,1),"counts",List.of(0,1)))));
+        BufferedImage mask = mask(40,40,List.of(cue));
+        for(int y=0;y<40;y++) for(int x=0;x<40;x++)
+            assertEquals(x>=10 && x<20, cleared(mask,x,y), x+","+y);
+    }
+
+    @Test void linesTheEditorLeftReadableAreSentAgainInCloseGroups() throws Exception {
+        int width=1000, height=600;
+        BufferedImage source=new BufferedImage(width,height,BufferedImage.TYPE_INT_RGB);
+        for(int y=0;y<height;y++) for(int x=0;x<width;x++) source.setRGB(x,y,new Color(200,190,60).getRGB());
+        // Three "lines" of dark stripes: two close together on the left, one far right.
+        int[][] lines={{100,100},{100,140},{800,450}};
+        for(int[] line:lines) for(int y=line[1];y<line[1]+24;y++) for(int x=line[0];x<line[0]+120;x++)
+            if((x/6)%2==0) source.setRGB(x,y,Color.BLACK.getRGB());
+        var cues=new java.util.ArrayList<Map<String,Object>>();
+        for(int i=0;i<lines.length;i++) {
+            double l=lines[i][0]/(double)width, t=lines[i][1]/(double)height, r=(lines[i][0]+120)/(double)width, b=(lines[i][1]+24)/(double)height;
+            cues.add(Map.of("id","clue-"+i,"type","text","coordinateSpace","analysis-normalized","bbox",List.of(l,t,r,b),
+                    "regions",List.of(Map.of("kind","text","bbox",List.of(l,t,r,b),
+                            "polygon",List.of(List.of(l,t),List.of(r,t),List.of(r,b),List.of(l,b))))));
+        }
+        var preparer=new EditImagePreparer();
+        var prepared=preparer.prepare(new EditSubmission(UUID.randomUUID(),encode(source,"png"),"image/png",cues,"",50),
+                EditImagePreparer.Framing.CROP);
+        assertEquals(3,prepared.textParts().size());
+
+        // First edit erased only the far line: the two close lines come back as one close crop.
+        BufferedImage firstEdit=copy(source);
+        fill(firstEdit,800,450,120,24,new Color(200,190,60));
+        var focus=preparer.focusRequests(prepared,firstEdit);
+        assertEquals(1,focus.size());
+        assertEquals(2,focus.get(0).parts().size());
+        assertEquals(List.of("clue-0","clue-1"),focus.get(0).cues().stream().map(c->c.get("id")).toList());
+        BufferedImage crop=ImageIO.read(new ByteArrayInputStream(focus.get(0).imagePng()));
+        BufferedImage cropMask=ImageIO.read(new ByteArrayInputStream(focus.get(0).maskPng()));
+        assertEquals(crop.getWidth(),cropMask.getWidth());
+        assertTrue(Math.max(crop.getWidth(),crop.getHeight())>=EditImagePreparer.MODEL_MIN_LONG_SIDE);
+
+        // The focused edit erases them; the far line keeps the first edit and the rest stays original.
+        int cw=crop.getWidth(), ch=crop.getHeight();
+        BufferedImage generated=new BufferedImage(cw,ch,BufferedImage.TYPE_INT_RGB);
+        for(int y=0;y<ch;y++) for(int x=0;x<cw;x++) generated.setRGB(x,y,new Color(200,190,60).getRGB());
+        BufferedImage done=preparer.blendFocus(firstEdit,focus.get(0),encode(generated,"png"));
+        assertTrue(preparer.focusRequests(prepared,done).isEmpty());
+        assertEquals(firstEdit.getRGB(860,460),done.getRGB(860,460));
+        assertEquals(source.getRGB(500,300),done.getRGB(500,300));
+        // Nothing readable left after a clean first edit.
+        BufferedImage clean=copy(source);
+        for(int[] line:lines) fill(clean,line[0],line[1],120,24,new Color(200,190,60));
+        assertTrue(preparer.focusRequests(prepared,clean).isEmpty());
+    }
+
+    @Test void focusedEditThatPaintsADarkHoleIsNotUsed() throws Exception {
+        int size=400;
+        BufferedImage source=new BufferedImage(size,size,BufferedImage.TYPE_INT_RGB);
+        for(int y=0;y<size;y++) for(int x=0;x<size;x++) source.setRGB(x,y,((x/4)%2==0 && x>=160 && x<240 && y>=180 && y<220)
+                ? Color.BLACK.getRGB() : new Color(220,220,220).getRGB());
+        Map<String,Object> cue=Map.of("id","c","type","text","coordinateSpace","analysis-normalized","bbox",List.of(.4,.45,.6,.55));
+        var preparer=new EditImagePreparer();
+        var prepared=preparer.prepare(new EditSubmission(UUID.randomUUID(),encode(source,"png"),"image/png",List.of(cue),"",50),
+                EditImagePreparer.Framing.CROP);
+        var focus=preparer.focusRequests(prepared,source);
+        assertEquals(1,focus.size());
+        BufferedImage crop=ImageIO.read(new ByteArrayInputStream(focus.get(0).imagePng()));
+        BufferedImage hole=new BufferedImage(crop.getWidth(),crop.getHeight(),BufferedImage.TYPE_INT_RGB);
+        for(int y=0;y<hole.getHeight();y++) for(int x=0;x<hole.getWidth();x++) hole.setRGB(x,y,Color.BLACK.getRGB());
+        assertSame(source,preparer.blendFocus(source,focus.get(0),encode(hole,"png")));
+    }
+
+    @Test void edgeRatioSeparatesErasedFromUntouchedWriting() {
+        BufferedImage text=new BufferedImage(60,20,BufferedImage.TYPE_INT_RGB);
+        for(int y=0;y<20;y++) for(int x=0;x<60;x++) text.setRGB(x,y,(x/3)%2==0 ? Color.BLACK.getRGB() : Color.WHITE.getRGB());
+        BufferedImage plain=new BufferedImage(60,20,BufferedImage.TYPE_INT_RGB);
+        for(int y=0;y<20;y++) for(int x=0;x<60;x++) plain.setRGB(x,y,Color.WHITE.getRGB());
+        var part=new PreparedEditImage.TextPart(Map.of(),new java.awt.geom.Path2D.Double(new java.awt.Rectangle(5,5,50,10)),
+                new java.awt.Rectangle(5,5,50,10));
+        assertEquals(1.0,EditComposite.edgeRatio(text,text,part),1e-9);
+        assertEquals(0.0,EditComposite.edgeRatio(text,plain,part),1e-9);
+        assertEquals(0.0,EditComposite.edgeRatio(plain,text,part),1e-9);   // nothing to erase in the original
+    }
+
     @Test void modelMaskGrowsBeyondTheClueShapeOnRealSizedPhotos() throws Exception {
         // 400x400: margin 3px + fade 2px -> the model repaints up to 5px around the 160..240 box.
         BufferedImage mask = mask(400,400,List.of(cue(.4,.4,.6,.6)));
@@ -201,6 +307,14 @@ class EditImagePreparerTest {
     private BufferedImage mask(int width,int height,List<Map<String,Object>> cues) throws Exception {
         var source = new BufferedImage(width,height,BufferedImage.TYPE_INT_RGB);
         return ImageIO.read(new ByteArrayInputStream(prepare(encode(source,"png"),"image/png",cues).maskPng()));
+    }
+    private BufferedImage copy(BufferedImage image) {
+        BufferedImage copy=new BufferedImage(image.getWidth(),image.getHeight(),BufferedImage.TYPE_INT_RGB);
+        copy.getGraphics().drawImage(image,0,0,null);
+        return copy;
+    }
+    private void fill(BufferedImage image,int x0,int y0,int w,int h,Color color) {
+        for(int y=y0;y<y0+h;y++) for(int x=x0;x<x0+w;x++) image.setRGB(x,y,color.getRGB());
     }
     private boolean cleared(BufferedImage mask,int x,int y) { return (mask.getRGB(x,y)>>>24)==0; }
     private PreparedEditImage prepare(byte[] bytes,String type,List<Map<String,Object>> cues) {

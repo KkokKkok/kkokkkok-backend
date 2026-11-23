@@ -47,11 +47,35 @@ class EditPromptBuilderTest {
         String prompt = builder.build(submission("Keep the warm cafe lighting", 50), List.of(
                 writing("clue-1", "store sign"), writing("clue-2", "phone number")));
 
-        assertTrue(prompt.contains("Erase only the letters, numbers, and logos inside the marked regions"));
-        assertTrue(prompt.contains("Keep every sign board, frame, edge, building, and structure"));
+        assertTrue(prompt.contains("Erase only the letters, numbers, and logos of this writing"));
+        assertTrue(prompt.contains("Keep the sign board, frame, and edges the writing is on"));
         assertTrue(prompt.contains("store sign") && prompt.contains("phone number"));
         assertTrue(prompt.contains("User's preservation request: Keep the warm cafe lighting"));
         assertFalse(prompt.contains("rebuild the scene"));
+        assertFalse(prompt.contains("Objects to remove completely"));
+    }
+
+    @Test
+    void standaloneObjectClueIsRemovedWholeWhileWritingKeepsItsBoard() {
+        String prompt = builder.build(submission(null, 50), List.of(writing("clue-1", "store sign"),
+                Map.of("id", "clue-2", "type", "object", "ruleClass", "identifier", "title", "station sign on a post")));
+
+        int writing = prompt.indexOf("Writing to erase:"), objects = prompt.indexOf("Objects to remove completely:");
+        assertTrue(writing >= 0 && objects > writing);
+        assertTrue(prompt.substring(writing, objects).contains("store sign"));
+        assertFalse(prompt.substring(writing, objects).contains("station sign on a post"));
+        assertTrue(prompt.substring(objects).contains("station sign on a post"));
+        assertTrue(prompt.contains("Remove each of these objects entirely, including its post"));
+        assertFalse(prompt.contains("rebuild the scene"));
+    }
+
+    @Test
+    void objectOnlySelectionHasNoWritingSection() {
+        String prompt = builder.build(submission(null, 50), List.of(
+                Map.of("id", "clue-2", "type", "object", "ruleClass", "identifier", "title", "station sign on a post")));
+
+        assertFalse(prompt.contains("Writing to erase"));
+        assertTrue(prompt.contains("Objects to remove completely"));
     }
 
     @Test
@@ -61,6 +85,7 @@ class EditPromptBuilderTest {
 
         assertTrue(prompt.contains("rebuild the scene with plausible nearby texture"));
         assertFalse(prompt.contains("Erase only the letters"));
+        assertFalse(prompt.contains("Objects to remove completely"));
     }
 
     private EditSubmission submission(String preservePrompt, int strength) {
