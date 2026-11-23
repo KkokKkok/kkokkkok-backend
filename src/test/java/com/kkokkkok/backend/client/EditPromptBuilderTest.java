@@ -42,11 +42,36 @@ class EditPromptBuilderTest {
         assertFalse(prompt.contains("User's preservation request"));
     }
 
+    @Test
+    void writingOnlySelectionErasesTheMarksAndKeepsBoardsAndStructures() {
+        String prompt = builder.build(submission("Keep the warm cafe lighting", 50), List.of(
+                writing("clue-1", "store sign"), writing("clue-2", "phone number")));
+
+        assertTrue(prompt.contains("Erase only the letters, numbers, and logos inside the marked regions"));
+        assertTrue(prompt.contains("Keep every sign board, frame, edge, building, and structure"));
+        assertTrue(prompt.contains("store sign") && prompt.contains("phone number"));
+        assertTrue(prompt.contains("User's preservation request: Keep the warm cafe lighting"));
+        assertFalse(prompt.contains("rebuild the scene"));
+    }
+
+    @Test
+    void anyStructureClueKeepsTheSceneReconstructionPrompt() {
+        String prompt = builder.build(submission(null, 50), List.of(writing("clue-1", "store sign"),
+                Map.of("id", "clue-2", "type", "building", "title", "building facade")));
+
+        assertTrue(prompt.contains("rebuild the scene with plausible nearby texture"));
+        assertFalse(prompt.contains("Erase only the letters"));
+    }
+
     private EditSubmission submission(String preservePrompt, int strength) {
         return new EditSubmission(null, new byte[0], "image/jpeg", List.of(), preservePrompt, strength);
     }
 
     private Map<String, Object> cue(String id, String title) {
-        return Map.of("id", id, "title", title, "description", "location identifying detail");
+        return Map.of("id", id, "title", title, "description", "location identifying detail", "ruleClass", "structure");
+    }
+
+    private Map<String, Object> writing(String id, String title) {
+        return Map.of("id", id, "type", "text", "title", title, "description", "readable store name", "ruleClass", "identifier");
     }
 }
