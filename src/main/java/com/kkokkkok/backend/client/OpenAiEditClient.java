@@ -2,10 +2,15 @@ package com.kkokkkok.backend.client;
 
 import com.kkokkkok.backend.apiPayload.exception.ApiFailure;
 import com.kkokkkok.backend.domain.EditSubmission;
+import java.awt.image.BufferedImage;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.ByteArrayResource;
@@ -62,25 +67,53 @@ class OpenAiEditClient implements EditClient {
         if (apiKey == null || apiKey.isBlank())
             throw new ApiFailure(503, "EDITING_NOT_CONFIGURED", "보호 편집 API 키가 설정되지 않았습니다.");
         String prompt = promptBuilder.build(submission, prepared.visualCues());
-        byte[] responseImage = requestEdit(prepared, prompt);
+        byte[] responseImage = requestEdit(prepared.imagePng(), prepared.maskPng(), prompt);
         double darkPatch = imagePreparer.darkPatchShare(prepared, responseImage);
         if (darkPatch > EditComposite.DARK_PATCH_LIMIT) {
             // Occasionally the editor paints a dark hole instead of the surface; one more try usually fixes it.
-            byte[] retried = requestEdit(prepared, prompt);
+            byte[] retried = requestEdit(prepared.imagePng(), prepared.maskPng(), prompt);
             if (imagePreparer.darkPatchShare(prepared, retried) < darkPatch) responseImage = retried;
         }
-        var composed = imagePreparer.compose(prepared, responseImage);
+        BufferedImage result = eraseReadableLines(submission, prepared, imagePreparer.blend(prepared, responseImage));
+        var composed = imagePreparer.encodeResult(result);
         return new EditResult(composed.bytes(), composed.contentType(), false, model, null);
     }
 
-    private byte[] requestEdit(PreparedEditImage prepared, String prompt) {
+    /**
+     * The editor sometimes leaves some of the marked writing as it was, mostly small lines in a frame spanning the
+     * whole photo. Those lines are sent once more, each group in its own close crop and all groups at the same
+     * time; a group whose request fails keeps the first edit.
+     */
+    private BufferedImage eraseReadableLines(EditSubmission submission, PreparedEditImage prepared, BufferedImage result) {
+        var focus = imagePreparer.focusRequests(prepared, result);
+        var responses = focus.stream()
+                .map(request -> CompletableFuture.supplyAsync(() -> requestEdit(request.imagePng(), request.maskPng(),
+                        promptBuilder.build(submission, request.cues())), FOCUS_POOL))
+                .toList();
+        for (int index = 0; index < focus.size(); index++) {
+            try {
+                result = imagePreparer.blendFocus(result, focus.get(index), responses.get(index).join());
+            } catch (CompletionException | ApiFailure failed) {
+                // The first edit stands for these lines.
+            }
+        }
+        return result;
+    }
+
+    private static final ExecutorService FOCUS_POOL = Executors.newFixedThreadPool(EditImagePreparer.MAX_FOCUS_REQUESTS, task -> {
+        Thread thread = new Thread(task, "edit-focus");
+        thread.setDaemon(true);
+        return thread;
+    });
+
+    private byte[] requestEdit(byte[] imagePng, byte[] maskPng, String prompt) {
         var parts = new LinkedMultiValueMap<String, Object>();
         parts.add("model", model);
         parts.add("prompt", prompt);
         parts.add("quality", quality);
         parts.add("output_format", "png");
-        parts.add("image[]", filePart("source.png", prepared.imagePng()));
-        parts.add("mask", filePart("mask.png", prepared.maskPng()));
+        parts.add("image[]", filePart("source.png", imagePng));
+        parts.add("mask", filePart("mask.png", maskPng));
         try {
             Map<String, Object> response = client.post()
                     .uri("/v1/images/edits")

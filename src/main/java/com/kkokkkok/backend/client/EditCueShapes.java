@@ -13,14 +13,38 @@ import java.util.Map;
  *
  * <p>The cue's own bbox is the one area the analysis server chose for it (for text, the lines of one
  * quoted name joined), so only regions lying inside that box are taken: a detector box that answered
- * another phrase elsewhere in the photo is not what the user selected. A cue with no usable shape is
- * edited by its box, as before.
+ * another phrase elsewhere in the photo is not what the user selected. Two kinds reach past that box and are
+ * taken too: a text line the analysis verified by OCR as part of the cue (a station sign's other names, the same
+ * shop name on a poster), and an object region that covers the box (a sign's post below its board). A cue with
+ * no usable shape is edited by its box, as before.
  */
 final class EditCueShapes {
     private static final double TOLERANCE = 0.002;
     private static final long MAX_MASK_CELLS = 1024L * 1024L;
+    private static final double OBJECT_COVER = 0.9;
 
-    interface Shape { void fill(Graphics2D graphics, int width, int height); }
+    interface Filler { void fill(Graphics2D graphics, int width, int height); }
+
+    /** One area to edit: a text line's corners, or an object mask's filler. Lines are checked after the edit. */
+    record Shape(Filler filler, double[][] corners) {
+        void fill(Graphics2D graphics, int width, int height) {
+            if (corners != null) graphics.fill(path(width, height));
+            else filler.fill(graphics, width, height);
+        }
+
+        boolean text() { return corners != null; }
+
+        /** The text line's outline in pixels of a {@code width}x{@code height} photo; only for {@link #text()}. */
+        Path2D.Double path(int width, int height) {
+            Path2D.Double path = new Path2D.Double();
+            for (int index = 0; index < corners.length; index++) {
+                if (index == 0) path.moveTo(corners[index][0] * width, corners[index][1] * height);
+                else path.lineTo(corners[index][0] * width, corners[index][1] * height);
+            }
+            path.closePath();
+            return path;
+        }
+    }
 
     private EditCueShapes() {}
 
@@ -31,9 +55,13 @@ final class EditCueShapes {
         for (Object item : regions) {
             if (!(item instanceof Map<?, ?> region)) continue;
             double[] box = box(region.get("bbox"));
-            if (box == null || box[0] < bbox[0] - TOLERANCE || box[1] < bbox[1] - TOLERANCE
-                    || box[2] > bbox[2] + TOLERANCE || box[3] > bbox[3] + TOLERANCE) continue;
-            Shape shape = switch (String.valueOf(region.get("kind"))) {
+            if (box == null) continue;
+            boolean inside = box[0] >= bbox[0] - TOLERANCE && box[1] >= bbox[1] - TOLERANCE
+                    && box[2] <= bbox[2] + TOLERANCE && box[3] <= bbox[3] + TOLERANCE;
+            String kind = String.valueOf(region.get("kind"));
+            boolean verifiedText = "text".equals(kind) && Boolean.TRUE.equals(region.get("verified"));
+            if (!inside && !verifiedText && !("object".equals(kind) && covers(box, bbox))) continue;
+            Shape shape = switch (kind) {
                 case "text" -> polygon(region.get("polygon"));
                 case "object" -> mask(region.get("mask"));
                 default -> null;
@@ -41,6 +69,14 @@ final class EditCueShapes {
             if (shape != null) shapes.add(shape);
         }
         return shapes;
+    }
+
+    /** Whether {@code region} covers almost all of {@code bbox}. */
+    private static boolean covers(double[] region, double[] bbox) {
+        double width = Math.min(region[2], bbox[2]) - Math.max(region[0], bbox[0]);
+        double height = Math.min(region[3], bbox[3]) - Math.max(region[1], bbox[1]);
+        if (width <= 0 || height <= 0) return false;
+        return width * height >= OBJECT_COVER * (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]);
     }
 
     private static double[] box(Object raw) {
@@ -63,15 +99,7 @@ final class EditCueShapes {
             // OCR corners can fall a hair outside the photo.
             corners[index] = new double[]{clamp(x.doubleValue()), clamp(y.doubleValue())};
         }
-        return (graphics, width, height) -> {
-            Path2D.Double path = new Path2D.Double();
-            for (int index = 0; index < corners.length; index++) {
-                if (index == 0) path.moveTo(corners[index][0] * width, corners[index][1] * height);
-                else path.lineTo(corners[index][0] * width, corners[index][1] * height);
-            }
-            path.closePath();
-            graphics.fill(path);
-        };
+        return new Shape(null, corners);
     }
 
     /** {@code {size:[height,width], counts:[run lengths, row by row, starting with unset cells]}} */
@@ -88,7 +116,7 @@ final class EditCueShapes {
             total += run;
         }
         if (total != (long) rows * columns) return null;
-        return (graphics, width, height) -> {
+        return new Shape((graphics, width, height) -> {
             int position = 0;
             for (int index = 0; index < runs.length; index++) {
                 // Odd runs are the set cells. A run goes on into the next row: it is cut at each row end.
@@ -104,7 +132,7 @@ final class EditCueShapes {
                 }
                 position += runs[index];
             }
-        };
+        }, null);
     }
 
     private static double clamp(double value) { return Math.max(0, Math.min(1, value)); }

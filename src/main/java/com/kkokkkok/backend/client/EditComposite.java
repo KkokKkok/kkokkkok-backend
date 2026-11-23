@@ -4,6 +4,8 @@ import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Keeps an image edit inside the clue areas. The model repaints the whole image it is given (and may return it at
@@ -200,6 +202,53 @@ final class EditComposite {
     static final double DARK_PATCH_LIMIT = 0.15;
     private static final int DARK_LUMA = 40;
     private static final double DARK_SURROUNDING_SHARE = 0.05;
+
+    /**
+     * How much of a text line's edge strength (luma steps between neighbouring pixels inside the line) is left
+     * after the edit: near 0 when the writing was erased to a plain surface, near 1 when the editor left it as it
+     * was. 0 for a line with almost no edges in the original, since there is nothing to check.
+     */
+    static double edgeRatio(BufferedImage source, BufferedImage result, PreparedEditImage.TextPart part) {
+        Rectangle box = part.bounds();
+        if (box.width < 2 || box.height < 2) return 0;
+        int[] before = source.getRGB(box.x, box.y, box.width, box.height, null, 0, box.width);
+        int[] after = result.getRGB(box.x, box.y, box.width, box.height, null, 0, box.width);
+        double edgesBefore = 0, edgesAfter = 0;
+        long count = 0;
+        for (int y = 1; y < box.height; y++) for (int x = 1; x < box.width; x++) {
+            if (!part.path().contains(box.x + x + 0.5, box.y + y + 0.5)) continue;
+            int i = y * box.width + x;
+            edgesBefore += Math.abs(luma(before[i]) - luma(before[i - 1])) + Math.abs(luma(before[i]) - luma(before[i - box.width]));
+            edgesAfter += Math.abs(luma(after[i]) - luma(after[i - 1])) + Math.abs(luma(after[i]) - luma(after[i - box.width]));
+            count++;
+        }
+        if (count == 0 || edgesBefore / count < MIN_LINE_EDGES) return 0;
+        return edgesAfter / edgesBefore;
+    }
+
+    /** Above this {@link #edgeRatio} a line still reads: erased lines measured at most 0.31, skipped ones 0.72+. */
+    static final double UNERASED_EDGE_RATIO = 0.5;
+    private static final double MIN_LINE_EDGES = 3;
+
+    /** Lines whose boxes come within {@code gap} pixels of each other, chained, as one group each. */
+    static List<List<PreparedEditImage.TextPart>> groups(List<PreparedEditImage.TextPart> parts, int gap) {
+        int[] parent = new int[parts.size()];
+        for (int i = 0; i < parent.length; i++) parent[i] = i;
+        for (int i = 0; i < parts.size(); i++) {
+            Rectangle near = parts.get(i).bounds();
+            near = new Rectangle(near.x - gap, near.y - gap, near.width + 2 * gap, near.height + 2 * gap);
+            for (int j = i + 1; j < parts.size(); j++)
+                if (near.intersects(parts.get(j).bounds())) parent[root(parent, j)] = root(parent, i);
+        }
+        var grouped = new java.util.LinkedHashMap<Integer, List<PreparedEditImage.TextPart>>();
+        for (int i = 0; i < parts.size(); i++) grouped.computeIfAbsent(root(parent, i), key -> new ArrayList<>()).add(parts.get(i));
+        return List.copyOf(grouped.values());
+    }
+
+    private static int root(int[] parent, int i) {
+        while (parent[i] != i) i = parent[i] = parent[parent[i]];
+        return i;
+    }
 
     private static int clampIndex(double position, int size) { return Math.max(0, Math.min(size - 1, (int) position)); }
 

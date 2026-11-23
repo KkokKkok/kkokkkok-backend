@@ -3,11 +3,13 @@ package com.kkokkkok.backend.client;
 import com.drew.imaging.ImageMetadataReader;
 import com.drew.metadata.exif.ExifIFD0Directory;
 import com.kkokkkok.backend.apiPayload.exception.ApiFailure;
+import com.kkokkkok.backend.client.PreparedEditImage.TextPart;
 import com.kkokkkok.backend.domain.EditSubmission;
 import java.awt.AlphaComposite;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.geom.AffineTransform;
+import java.awt.geom.Path2D;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferByte;
 import java.io.ByteArrayInputStream;
@@ -56,6 +58,8 @@ class EditImagePreparer {
         BufferedImage oriented = applyOrientation(source, readOrientation(submission.image()));
         int width = oriented.getWidth(), height = oriented.getHeight();
         var visualCues = new ArrayList<Map<String, Object>>();
+        var textParts = new ArrayList<TextPart>();
+        Rectangle photo = new Rectangle(0, 0, width, height);
         // Clue shapes drawn white on black at the original size.
         BufferedImage shapes = new BufferedImage(width, height, BufferedImage.TYPE_BYTE_GRAY);
         Graphics2D graphics = shapes.createGraphics();
@@ -67,7 +71,10 @@ class EditImagePreparer {
                 // The exact area when the analysis gave one (text polygon, object mask); else the box.
                 var cueShapes = EditCueShapes.of(cue, bbox);
                 if (!cueShapes.isEmpty()) {
-                    for (var shape : cueShapes) shape.fill(graphics, width, height);
+                    for (var shape : cueShapes) {
+                        shape.fill(graphics, width, height);
+                        if (shape.text()) addPart(textParts, cue, shape.path(width, height), photo);
+                    }
                     visualCues.add(cue);
                     continue;
                 }
@@ -76,6 +83,10 @@ class EditImagePreparer {
                 int right = clamp((int) Math.ceil(bbox[2] * width), left + 1, width);
                 int bottom = clamp((int) Math.ceil(bbox[3] * height), top + 1, height);
                 graphics.fillRect(left, top, right - left, bottom - top);
+                if ("text".equals(cue.get("type"))) {
+                    Path2D.Double box = new Path2D.Double(new Rectangle(left, top, right - left, bottom - top));
+                    addPart(textParts, cue, box, photo);
+                }
                 visualCues.add(cue);
             }
         } finally {
@@ -88,31 +99,99 @@ class EditImagePreparer {
             if (imagePng.length > MAX_PROVIDER_IMAGE_BYTES)
                 throw new ApiFailure(413, "EDIT_IMAGE_TOO_LARGE", "편집용 PNG 사진은 50MB 이하여야 합니다.");
             return new PreparedEditImage(imagePng, null, width, height, List.of(), oriented, null, 0, 0,
-                    new Rectangle(0, 0, width, height));
+                    new Rectangle(0, 0, width, height), List.of());
         }
 
-        // Grow the exact clue shapes so glyph edges and outlines are repainted too, and remember each pixel's
-        // distance to them so the edit can be blended back only there.
+        Layout layout = layout(shapes, framing == Framing.CROP);
+        shapes = null;
+        byte[][] model = modelView(oriented, layout, framing == Framing.CROP);
+        return new PreparedEditImage(model[0], model[1], width, height, List.copyOf(visualCues), oriented,
+                layout.distance(), layout.grow(), layout.feather(), layout.frame(), List.copyOf(textParts));
+    }
+
+    private static void addPart(List<TextPart> parts, Map<String, Object> cue, Path2D path, Rectangle photo) {
+        Rectangle bounds = path.getBounds().intersection(photo);
+        if (!bounds.isEmpty()) parts.add(new TextPart(cue, path, bounds));
+    }
+
+    /** Distance of every pixel to the clue shapes, the margin/fade widths, and the frame sent to the editor. */
+    private record Layout(short[] distance, int grow, int feather, Rectangle frame) {}
+
+    /**
+     * Grow the exact clue shapes (white on black) so glyph edges and outlines are repainted too, and remember each
+     * pixel's distance to them so the edit can be blended back only there.
+     */
+    private Layout layout(BufferedImage shapes, boolean crop) {
+        int width = shapes.getWidth(), height = shapes.getHeight();
         byte[] raster = ((DataBufferByte) shapes.getRaster().getDataBuffer()).getData();
         boolean[] region = new boolean[raster.length];
         for (int i = 0; i < raster.length; i++) region[i] = raster[i] != 0;
-        shapes = null;
         int grow = EditComposite.grow(width, height), feather = EditComposite.feather(width, height);
         short[] distance = EditComposite.distances(region, width, height, grow + feather + 64);
-        region = null;
-        Rectangle frame = framing == Framing.CROP
-                ? EditComposite.cropAround(distance, width, height, grow, feather)
+        Rectangle frame = crop ? EditComposite.cropAround(distance, width, height, grow, feather)
                 : new Rectangle(0, 0, width, height);
-        byte[][] model = modelView(oriented, distance, grow, feather, frame, framing == Framing.CROP);
-        return new PreparedEditImage(model[0], model[1], width, height, List.copyOf(visualCues), oriented, distance,
-                grow, feather, frame);
+        return new Layout(distance, grow, feather, frame);
+    }
+
+    /**
+     * Text lines the editor left readable, grouped by closeness, each group as a new crop of {@code result} (the
+     * photo after the first edit) for one more request. A crop around a few lines shows them much larger than a
+     * frame spanning the whole photo, which is when the editor tends to skip small writing. At most
+     * {@value #MAX_FOCUS_REQUESTS} groups.
+     */
+    List<FocusRequest> focusRequests(PreparedEditImage prepared, BufferedImage result) {
+        var readable = prepared.textParts().stream()
+                .filter(part -> EditComposite.edgeRatio(prepared.source(), result, part) > EditComposite.UNERASED_EDGE_RATIO)
+                .toList();
+        if (readable.isEmpty()) return List.of();
+        int gap = (int) (Math.min(prepared.width(), prepared.height()) * 0.06);
+        var requests = new ArrayList<FocusRequest>();
+        for (List<TextPart> group : EditComposite.groups(readable, gap)) {
+            if (requests.size() == MAX_FOCUS_REQUESTS) break;
+            byte[][] model = modelView(result, layout(draw(group, prepared.width(), prepared.height()), true), true);
+            List<Map<String, Object>> cues = group.stream().map(TextPart::cue).distinct().toList();
+            requests.add(new FocusRequest(group, cues, model[0], model[1]));
+        }
+        return requests;
+    }
+
+    static final int MAX_FOCUS_REQUESTS = 4;
+
+    /** One more edit request for a group of readable lines: the crop and mask the editor sees and their clues. */
+    record FocusRequest(List<TextPart> parts, List<Map<String, Object>> cues, byte[] imagePng, byte[] maskPng) {}
+
+    /**
+     * {@code base} with the focused edit blended in around its lines only. A dark patch instead of the surface
+     * keeps {@code base} as it was.
+     */
+    BufferedImage blendFocus(BufferedImage base, FocusRequest focus, byte[] generated) {
+        BufferedImage decoded = decodeGenerated(generated);
+        Layout layout = layout(draw(focus.parts(), base.getWidth(), base.getHeight()), true);
+        if (EditComposite.darkPatchShare(base, decoded, layout.distance(), layout.grow(), layout.feather(),
+                layout.frame()) > EditComposite.DARK_PATCH_LIMIT) return base;
+        return EditComposite.blend(base, decoded, layout.distance(), layout.grow(), layout.feather(), layout.frame());
+    }
+
+    private static BufferedImage draw(List<TextPart> parts, int width, int height) {
+        BufferedImage shapes = new BufferedImage(width, height, BufferedImage.TYPE_BYTE_GRAY);
+        Graphics2D graphics = shapes.createGraphics();
+        try {
+            graphics.setColor(java.awt.Color.WHITE);
+            for (TextPart part : parts) graphics.fill(part.path());
+        } finally {
+            graphics.dispose();
+        }
+        return shapes;
     }
 
     /**
      * The editor's view of one frame, at most MODEL_LONG_SIDE on the long side (crops are enlarged to at least
      * MODEL_MIN_LONG_SIDE so the editor has enough pixels to work with), and the grown mask sampled to match.
      */
-    private byte[][] modelView(BufferedImage oriented, short[] distance, int grow, int feather, Rectangle frame, boolean crop) {
+    private byte[][] modelView(BufferedImage oriented, Layout layout, boolean crop) {
+        short[] distance = layout.distance();
+        int grow = layout.grow(), feather = layout.feather();
+        Rectangle frame = layout.frame();
         int width = oriented.getWidth(), height = oriented.getHeight();
         int frameLong = Math.max(frame.width, frame.height);
         int targetLong = Math.min(MODEL_LONG_SIDE, crop ? Math.max(MODEL_MIN_LONG_SIDE, frameLong) : frameLong);
@@ -142,11 +221,24 @@ class EditImagePreparer {
      * original size. Stored as PNG, or as a high-quality JPEG when a large photo's PNG would exceed the limit.
      */
     EditedImage compose(PreparedEditImage prepared, byte[] generated) {
+        return encodeResult(blend(prepared, generated));
+    }
+
+    /** The original photo with the editor's output used only inside the (grown, faded) clue areas. */
+    BufferedImage blend(PreparedEditImage prepared, byte[] generated) {
+        return EditComposite.blend(prepared.source(), decodeGenerated(generated), prepared.distance(), prepared.grow(),
+                prepared.feather(), prepared.frame());
+    }
+
+    private BufferedImage decodeGenerated(byte[] generated) {
         BufferedImage decoded = decode(generated);
         if ((long) decoded.getWidth() * decoded.getHeight() > MAX_PIXELS)
             throw new ApiFailure(502, "INVALID_EDIT_OUTPUT", "편집 결과의 해상도가 허용 범위를 벗어났습니다.");
-        BufferedImage result = EditComposite.blend(prepared.source(), decoded, prepared.distance(), prepared.grow(),
-                prepared.feather(), prepared.frame());
+        return decoded;
+    }
+
+    /** Stored as PNG, or as a high-quality JPEG when a large photo's PNG would exceed the limit. */
+    EditedImage encodeResult(BufferedImage result) {
         byte[] png = encodePng(result);
         if (png.length <= MAX_STORED_IMAGE_BYTES) return new EditedImage(png, "image/png");
         if (!result.getColorModel().hasAlpha()) for (float quality : new float[]{0.95f, 0.92f, 0.88f}) {
@@ -160,10 +252,7 @@ class EditImagePreparer {
 
     /** How much of the edited area the editor painted as an unexplained dark patch (0 = none). */
     double darkPatchShare(PreparedEditImage prepared, byte[] generated) {
-        BufferedImage decoded = decode(generated);
-        if ((long) decoded.getWidth() * decoded.getHeight() > MAX_PIXELS)
-            throw new ApiFailure(502, "INVALID_EDIT_OUTPUT", "편집 결과의 해상도가 허용 범위를 벗어났습니다.");
-        return EditComposite.darkPatchShare(prepared.source(), decoded, prepared.distance(), prepared.grow(),
+        return EditComposite.darkPatchShare(prepared.source(), decodeGenerated(generated), prepared.distance(), prepared.grow(),
                 prepared.feather(), prepared.frame());
     }
 
