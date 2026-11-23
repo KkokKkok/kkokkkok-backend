@@ -166,6 +166,45 @@ final class EditComposite {
         return result;
     }
 
+    /**
+     * Share of the edited area the model filled with near-black although nothing around it is dark: a known failure
+     * where a hole or flat dark patch is painted instead of the surface. 0 when the surroundings are dark themselves.
+     */
+    static double darkPatchShare(BufferedImage source, BufferedImage generated, short[] distance, int grow, int feather,
+                                 Rectangle frame) {
+        int width = source.getWidth(), height = source.getHeight();
+        int gw = generated.getWidth(), gh = generated.getHeight();
+        int[] gen = generated.getRGB(0, 0, gw, gh, null, 0, gw);
+        double sx = gw / (double) frame.width, sy = gh / (double) frame.height;
+        int inner = (grow + feather) * UNIT, outer = (grow + feather + ring(width, height)) * UNIT;
+        long masked = 0, dark = 0, around = 0, darkAround = 0;
+        int[] row = new int[width];
+        for (int y = frame.y; y < frame.y + frame.height; y++) {
+            source.getRGB(0, y, width, 1, row, 0, width);
+            for (int x = frame.x; x < frame.x + frame.width; x++) {
+                int d = distance[y * width + x];
+                if (d <= grow * UNIT) {
+                    masked++;
+                    int edit = gen[clampIndex((y - frame.y + 0.5) * sy, gh) * gw + clampIndex((x - frame.x + 0.5) * sx, gw)];
+                    if (luma(edit) < DARK_LUMA) dark++;
+                } else if (d > inner && d <= outer) {
+                    around++;
+                    if (luma(row[x]) < DARK_LUMA) darkAround++;
+                }
+            }
+        }
+        if (masked == 0 || around == 0 || darkAround > around * DARK_SURROUNDING_SHARE) return 0;
+        return dark / (double) masked;
+    }
+
+    static final double DARK_PATCH_LIMIT = 0.15;
+    private static final int DARK_LUMA = 40;
+    private static final double DARK_SURROUNDING_SHARE = 0.05;
+
+    private static int clampIndex(double position, int size) { return Math.max(0, Math.min(size - 1, (int) position)); }
+
+    private static int luma(int rgb) { return (299 * channel(rgb, 0) + 587 * channel(rgb, 1) + 114 * channel(rgb, 2)) / 1000; }
+
     /** Bicubic (Catmull-Rom) sample of an RGB pixel array at fractional coordinates, edges clamped. */
     private static int sample(int[] pixels, int width, int height, double fx, double fy) {
         int x0 = (int) Math.floor(fx), y0 = (int) Math.floor(fy);

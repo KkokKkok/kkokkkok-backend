@@ -96,6 +96,28 @@ class EditImagePreparerTest {
         assertFalse(cleared(mask,100,100));
     }
 
+    @Test void darkHolePaintedOnABrightWallIsDetectedButADarkSurroundingIsNot() throws Exception {
+        int size=400;
+        var preparer=new EditImagePreparer();
+        for(int wall : new int[]{210, 20}) {
+            BufferedImage source=new BufferedImage(size,size,BufferedImage.TYPE_INT_RGB);
+            for(int y=0;y<size;y++) for(int x=0;x<size;x++) source.setRGB(x,y,new Color(wall,wall,wall).getRGB());
+            var prepared=preparer.prepare(new EditSubmission(UUID.randomUUID(),encode(source,"png"),"image/png",
+                    List.of(cue(.4,.4,.6,.6)),"",50));
+            BufferedImage hole=new BufferedImage(size,size,BufferedImage.TYPE_INT_RGB);
+            BufferedImage clean=new BufferedImage(size,size,BufferedImage.TYPE_INT_RGB);
+            for(int y=0;y<size;y++) for(int x=0;x<size;x++) {
+                boolean clue=x>=160 && x<240 && y>=160 && y<240;
+                hole.setRGB(x,y,clue ? new Color(8,8,8).getRGB() : source.getRGB(x,y));
+                clean.setRGB(x,y,source.getRGB(x,y));
+            }
+            double holeShare=preparer.darkPatchShare(prepared,encode(hole,"png"));
+            assertEquals(0,preparer.darkPatchShare(prepared,encode(clean,"png")),1e-9);
+            if(wall>100) assertTrue(holeShare>EditComposite.DARK_PATCH_LIMIT,"hole share "+holeShare);
+            else assertEquals(0,holeShare,1e-9);
+        }
+    }
+
     @Test void composeKeepsEveryPixelOutsideTheEditAreaAndUsesTheEditInside() throws Exception {
         int size=400;
         var random=new java.util.Random(7);

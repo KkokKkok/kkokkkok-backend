@@ -158,6 +158,15 @@ class EditImagePreparer {
 
     record EditedImage(byte[] bytes, String contentType) {}
 
+    /** How much of the edited area the editor painted as an unexplained dark patch (0 = none). */
+    double darkPatchShare(PreparedEditImage prepared, byte[] generated) {
+        BufferedImage decoded = decode(generated);
+        if ((long) decoded.getWidth() * decoded.getHeight() > MAX_PIXELS)
+            throw new ApiFailure(502, "INVALID_EDIT_OUTPUT", "편집 결과의 해상도가 허용 범위를 벗어났습니다.");
+        return EditComposite.darkPatchShare(prepared.source(), decoded, prepared.distance(), prepared.grow(),
+                prepared.feather(), prepared.frame());
+    }
+
     byte[] sanitizeGeneratedImage(byte[] bytes) {
         BufferedImage decoded = decode(bytes);
         if ((long) decoded.getWidth() * decoded.getHeight() > MAX_PIXELS)
