@@ -52,7 +52,7 @@ class EditPromptBuilderTest {
         assertTrue(prompt.contains("store sign") && prompt.contains("phone number"));
         assertTrue(prompt.contains("User's preservation request: Keep the warm cafe lighting"));
         assertFalse(prompt.contains("rebuild the scene"));
-        assertFalse(prompt.contains("Objects to remove completely"));
+        assertFalse(prompt.contains("Objects to hide"));
     }
 
     @Test
@@ -60,12 +60,12 @@ class EditPromptBuilderTest {
         String prompt = builder.build(submission(null, 50), List.of(writing("clue-1", "store sign"),
                 Map.of("id", "clue-2", "type", "object", "ruleClass", "identifier", "title", "station sign on a post")));
 
-        int writing = prompt.indexOf("Writing to erase:"), objects = prompt.indexOf("Objects to remove completely:");
+        int writing = prompt.indexOf("Writing to erase:"), objects = prompt.indexOf("Objects to hide:");
         assertTrue(writing >= 0 && objects > writing);
         assertTrue(prompt.substring(writing, objects).contains("store sign"));
         assertFalse(prompt.substring(writing, objects).contains("station sign on a post"));
         assertTrue(prompt.substring(objects).contains("station sign on a post"));
-        assertTrue(prompt.contains("Remove each of these objects entirely, including its post"));
+        assertTrue(prompt.contains("remove it entirely, including its post"));
         assertFalse(prompt.contains("rebuild the scene"));
     }
 
@@ -75,13 +75,34 @@ class EditPromptBuilderTest {
         String prompt = builder.build(submission(null, 50), List.of(Map.of("id", "clue-9", "type", "object",
                 "ruleClass", "other", "title", "location guess from the building", "bbox", List.of(0.0, 0.0, 0.85, 0.49))));
 
-        assertFalse(prompt.contains("Objects to remove completely"));
-        assertFalse(prompt.contains("Remove each of these objects entirely"));
+        assertFalse(prompt.contains("Objects to hide"));
+        assertFalse(prompt.contains("remove it entirely"));
         assertTrue(prompt.contains("rebuild the scene"));
         // A small object (a sign on its post) is still removed whole.
         String small = builder.build(submission(null, 50), List.of(Map.of("id", "clue-2", "type", "object",
                 "title", "station sign on a post", "bbox", List.of(0.4, 0.3, 0.6, 0.8))));
-        assertTrue(small.contains("Objects to remove completely"));
+        assertTrue(small.contains("Objects to hide"));
+    }
+
+    @Test
+    void locationGuessIsNeverRemovedWholeButARealClueInAGuessCategoryIs() {
+        // A guess drawn on a landmark (small box) gets the scene edit, not removal; a station name filed under the
+        // same category keeps its identifier class and is removed as an object.
+        String guess = builder.build(submission(null, 50), List.of(Map.of("id", "clue-8", "type", "object",
+                "ruleClass", "other", "category", "추정 위치", "title", "guess from other clues", "bbox", List.of(0.52, 0.09, 0.57, 0.31))));
+        assertFalse(guess.contains("Objects to hide"));
+        String station = builder.build(submission(null, 50), List.of(Map.of("id", "clue-2", "type", "object",
+                "ruleClass", "identifier", "category", "추정 위치", "title", "station name", "bbox", List.of(0.1, 0.5, 0.2, 0.9))));
+        assertTrue(station.contains("Objects to hide"));
+    }
+
+    @Test
+    void attachedObjectsKeepTheirShapeAndRaisedLettersLoseTheirShadows() {
+        String prompt = builder.build(submission(null, 50), List.of(writing("clue-1", "store sign"),
+                Map.of("id", "clue-2", "type", "object", "ruleClass", "identifier", "title", "school mascot")));
+        assertTrue(prompt.contains("keep that larger thing whole and in its exact shape, and erase only the identifying mark"));
+        assertTrue(prompt.contains("silhouette"));
+        assertTrue(prompt.contains("also remove their shadows, outlines, mounting rails"));
     }
 
     @Test
@@ -90,7 +111,7 @@ class EditPromptBuilderTest {
                 Map.of("id", "clue-2", "type", "object", "ruleClass", "identifier", "title", "station sign on a post")));
 
         assertFalse(prompt.contains("Writing to erase"));
-        assertTrue(prompt.contains("Objects to remove completely"));
+        assertTrue(prompt.contains("Objects to hide"));
     }
 
     @Test
@@ -100,7 +121,7 @@ class EditPromptBuilderTest {
 
         assertTrue(prompt.contains("rebuild the scene with plausible nearby texture"));
         assertFalse(prompt.contains("Erase only the letters"));
-        assertFalse(prompt.contains("Objects to remove completely"));
+        assertFalse(prompt.contains("Objects to hide"));
     }
 
     private EditSubmission submission(String preservePrompt, int strength) {

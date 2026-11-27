@@ -1,6 +1,8 @@
 package com.kkokkkok.backend.client;
 
 import java.awt.Graphics2D;
+import java.awt.BasicStroke;
+import java.awt.geom.Area;
 import java.awt.geom.Path2D;
 import java.awt.geom.Rectangle2D;
 import java.util.ArrayList;
@@ -113,14 +115,30 @@ final class EditCueShapes {
             double lineArea = 0;
             for (int i : group) { all.addAll(List.of(points[i])); lineArea += area[i]; }
             double[][] hull = hull(all);
-            if (group.size() > 1 && area(hull) <= MAX_JOIN_SPREAD * lineArea) areas.add(path(hull));
-            else for (int i : group) areas.add(path(points[i]));
+            double tallest = 0;
+            for (int i : group) tallest = Math.max(tallest, thickness[i]);
+            if (group.size() > 1 && area(hull) <= MAX_JOIN_SPREAD * lineArea) areas.add(padded(path(hull), tallest));
+            else for (int i : group) areas.add(padded(path(points[i]), thickness[i]));
         }
         return areas;
     }
 
     private static final double JOIN_GAP = 3;
     private static final double MAX_JOIN_SPREAD = 8;
+    private static final double LINE_PAD = 0.2;
+
+    /**
+     * {@code area} grown by {@value #LINE_PAD} of its line height on every side. Raised and illuminated letters cast
+     * shadows and leave outlines a little outside the OCR box, which a margin fixed to the photo size misses on large
+     * signs; growing with the letters takes them in.
+     */
+    private static Path2D.Double padded(Path2D.Double area, double lineHeight) {
+        double pad = LINE_PAD * lineHeight;
+        if (pad < 0.5) return area;
+        var grown = new Area(area);
+        grown.add(new Area(new BasicStroke((float) (2 * pad), BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND).createStrokedShape(area)));
+        return new Path2D.Double(grown);
+    }
 
     private static double gap(Rectangle2D a, Rectangle2D b) {
         double dx = Math.max(0, Math.max(a.getMinX(), b.getMinX()) - Math.min(a.getMaxX(), b.getMaxX()));
