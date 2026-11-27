@@ -199,36 +199,87 @@ final class EditComposite {
         return dark / (double) masked;
     }
 
+    /**
+     * Share of the whole photo the model painted pure black inside the edit where the original was not dark: a hole
+     * torn into the scene (seen at a photo corner when a large area was repainted). Unlike {@link #darkPatchShare}
+     * this counts also when the surroundings are dark in places, since near-black over a bright original is never
+     * a plausible surface. Real edits measured at most 0.03% of the photo; the hole was 2.4%.
+     */
+    static double blackHoleShare(BufferedImage source, BufferedImage generated, short[] distance, int grow, Rectangle frame) {
+        int width = source.getWidth();
+        int gw = generated.getWidth(), gh = generated.getHeight();
+        int[] gen = generated.getRGB(0, 0, gw, gh, null, 0, gw);
+        double sx = gw / (double) frame.width, sy = gh / (double) frame.height;
+        long hole = 0;
+        int[] row = new int[width];
+        for (int y = frame.y; y < frame.y + frame.height; y++) {
+            source.getRGB(0, y, width, 1, row, 0, width);
+            for (int x = frame.x; x < frame.x + frame.width; x++) {
+                if (distance[y * width + x] > grow * UNIT || luma(row[x]) < DARK_LUMA) continue;
+                int edit = gen[clampIndex((y - frame.y + 0.5) * sy, gh) * gw + clampIndex((x - frame.x + 0.5) * sx, gw)];
+                if (luma(edit) < BLACK_LUMA) hole++;
+            }
+        }
+        return hole / ((double) width * source.getHeight());
+    }
+
+    static final double BLACK_HOLE_LIMIT = 0.005;
+    private static final int BLACK_LUMA = 12;
+
     static final double DARK_PATCH_LIMIT = 0.15;
     private static final int DARK_LUMA = 40;
     private static final double DARK_SURROUNDING_SHARE = 0.05;
 
     /**
-     * How much of a text line's edge strength (luma steps between neighbouring pixels inside the line) is left
-     * after the edit: near 0 when the writing was erased to a plain surface, near 1 when the editor left it as it
-     * was. 0 for a line with almost no edges in the original, since there is nothing to check.
+     * How much of a text area's writing is left after the edit, measured as the share of stroke pixels (sharp luma
+     * steps) above what the untouched surroundings have: near 0 when the area now looks like what is around it, near
+     * 1 when the editor left the writing as it was. Comparing against the surroundings keeps leaves, tiles or other
+     * texture that runs across the writing from counting as writing. 0 when the original area had no more strokes than
+     * its surroundings, since there is nothing to check.
      */
-    static double edgeRatio(BufferedImage source, BufferedImage result, PreparedEditImage.TextPart part) {
+    static double remainingWriting(BufferedImage source, BufferedImage result, PreparedEditImage.TextPart part,
+                                   short[] distance, int grow, int feather) {
+        int width = source.getWidth(), height = source.getHeight();
         Rectangle box = part.bounds();
-        if (box.width < 2 || box.height < 2) return 0;
-        int[] before = source.getRGB(box.x, box.y, box.width, box.height, null, 0, box.width);
-        int[] after = result.getRGB(box.x, box.y, box.width, box.height, null, 0, box.width);
-        double edgesBefore = 0, edgesAfter = 0;
-        long count = 0;
-        for (int y = 1; y < box.height; y++) for (int x = 1; x < box.width; x++) {
-            if (!part.path().contains(box.x + x + 0.5, box.y + y + 0.5)) continue;
-            int i = y * box.width + x;
-            edgesBefore += Math.abs(luma(before[i]) - luma(before[i - 1])) + Math.abs(luma(before[i]) - luma(before[i - box.width]));
-            edgesAfter += Math.abs(luma(after[i]) - luma(after[i - 1])) + Math.abs(luma(after[i]) - luma(after[i - box.width]));
-            count++;
+        // Only a thin band just outside the edit: farther out there is often other busy content (tiles, other signs).
+        int pad = grow + feather + Math.max(4, (int) (Math.min(width, height) * 0.015));
+        Rectangle around = new Rectangle(box.x - pad, box.y - pad, box.width + 2 * pad, box.height + 2 * pad)
+                .intersection(new Rectangle(0, 0, width, height));
+        if (around.width < 2 || around.height < 2) return 0;
+        int[] before = source.getRGB(around.x, around.y, around.width, around.height, null, 0, around.width);
+        int[] after = result.getRGB(around.x, around.y, around.width, around.height, null, 0, around.width);
+        int reach = (grow + feather) * UNIT;
+        long inside = 0, strokesBefore = 0, strokesAfter = 0, ring = 0, strokesRing = 0;
+        for (int y = 1; y < around.height; y++) for (int x = 1; x < around.width; x++) {
+            int px = around.x + x, py = around.y + y, i = y * around.width + x;
+            if (part.path().contains(px + 0.5, py + 0.5)) {
+                inside++;
+                if (stroke(before, i, around.width)) strokesBefore++;
+                if (stroke(after, i, around.width)) strokesAfter++;
+            } else if (distance[py * width + px] > reach) {
+                ring++;
+                if (stroke(after, i, around.width)) strokesRing++;
+            }
         }
-        if (count == 0 || edgesBefore / count < MIN_LINE_EDGES) return 0;
-        return edgesAfter / edgesBefore;
+        if (inside == 0) return 0;
+        double was = strokesBefore / (double) inside, is = strokesAfter / (double) inside;
+        double usual = ring == 0 ? 0 : strokesRing / (double) ring;
+        if (was - usual < MIN_STROKE_EXCESS) return 0;
+        return Math.max(0, (is - usual) / (was - usual));
     }
 
-    /** Above this {@link #edgeRatio} a line still reads: erased lines measured at most 0.31, skipped ones 0.72+. */
-    static final double UNERASED_EDGE_RATIO = 0.5;
-    private static final double MIN_LINE_EDGES = 3;
+    /**
+     * Above this {@link #remainingWriting} the writing still reads. On real edits, erased areas measured at most
+     * 0.10, including lines behind leaves that the plain edge ratio took for unerased.
+     */
+    static final double UNERASED_WRITING = 0.3;
+    private static final int STROKE_STEP = 40;
+    private static final double MIN_STROKE_EXCESS = 0.05;
+
+    private static boolean stroke(int[] pixels, int i, int width) {
+        int value = luma(pixels[i]);
+        return Math.abs(value - luma(pixels[i - 1])) + Math.abs(value - luma(pixels[i - width])) > STROKE_STEP;
+    }
 
     /** Lines whose boxes come within {@code gap} pixels of each other, chained, as one group each. */
     static List<List<PreparedEditImage.TextPart>> groups(List<PreparedEditImage.TextPart> parts, int gap) {

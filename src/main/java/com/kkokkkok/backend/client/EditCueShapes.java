@@ -2,7 +2,9 @@ package com.kkokkkok.backend.client;
 
 import java.awt.Graphics2D;
 import java.awt.geom.Path2D;
+import java.awt.geom.Rectangle2D;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -69,6 +71,108 @@ final class EditCueShapes {
             if (shape != null) shapes.add(shape);
         }
         return shapes;
+    }
+
+    /**
+     * The areas to edit for one cue's text lines, in pixels of a {@code width}x{@code height} photo. Lines lying within
+     * {@value #JOIN_GAP} line heights of each other become one area, their convex hull: OCR often reads only the small
+     * lines of a sign (a slogan above, a year below) and not the stylized name between them, and a board whose
+     * lines are all erased one by one keeps fragments of the icons and frames between them. A group whose hull would
+     * be far larger than its lines ({@value #MAX_JOIN_SPREAD}x) stays line by line.
+     */
+    static List<Path2D.Double> joinNearLines(List<Shape> lines, int width, int height) {
+        int count = lines.size();
+        double[][][] points = new double[count][][];
+        Rectangle2D[] bounds = new Rectangle2D[count];
+        double[] area = new double[count], thickness = new double[count];
+        for (int i = 0; i < count; i++) {
+            double[][] corners = lines.get(i).corners();
+            points[i] = new double[corners.length][];
+            double longest = 0;
+            for (int k = 0; k < corners.length; k++) {
+                points[i][k] = new double[]{corners[k][0] * width, corners[k][1] * height};
+            }
+            for (int k = 0; k < corners.length; k++) {
+                double[] a = points[i][k], b = points[i][(k + 1) % corners.length];
+                longest = Math.max(longest, Math.hypot(b[0] - a[0], b[1] - a[1]));
+            }
+            area[i] = area(points[i]);
+            thickness[i] = longest > 0 ? area[i] / longest : 0;
+            bounds[i] = path(points[i]).getBounds2D();
+        }
+        int[] parent = new int[count];
+        for (int i = 0; i < count; i++) parent[i] = i;
+        for (int i = 0; i < count; i++) for (int j = i + 1; j < count; j++)
+            if (gap(bounds[i], bounds[j]) <= JOIN_GAP * Math.max(thickness[i], thickness[j]))
+                parent[root(parent, j)] = root(parent, i);
+        var groups = new LinkedHashMap<Integer, List<Integer>>();
+        for (int i = 0; i < count; i++) groups.computeIfAbsent(root(parent, i), key -> new ArrayList<>()).add(i);
+        List<Path2D.Double> areas = new ArrayList<>();
+        for (List<Integer> group : groups.values()) {
+            List<double[]> all = new ArrayList<>();
+            double lineArea = 0;
+            for (int i : group) { all.addAll(List.of(points[i])); lineArea += area[i]; }
+            double[][] hull = hull(all);
+            if (group.size() > 1 && area(hull) <= MAX_JOIN_SPREAD * lineArea) areas.add(path(hull));
+            else for (int i : group) areas.add(path(points[i]));
+        }
+        return areas;
+    }
+
+    private static final double JOIN_GAP = 3;
+    private static final double MAX_JOIN_SPREAD = 8;
+
+    private static double gap(Rectangle2D a, Rectangle2D b) {
+        double dx = Math.max(0, Math.max(a.getMinX(), b.getMinX()) - Math.min(a.getMaxX(), b.getMaxX()));
+        double dy = Math.max(0, Math.max(a.getMinY(), b.getMinY()) - Math.min(a.getMaxY(), b.getMaxY()));
+        return Math.hypot(dx, dy);
+    }
+
+    private static int root(int[] parent, int i) {
+        while (parent[i] != i) i = parent[i] = parent[parent[i]];
+        return i;
+    }
+
+    private static double area(double[][] points) {
+        double twice = 0;
+        for (int k = 0; k < points.length; k++) {
+            double[] a = points[k], b = points[(k + 1) % points.length];
+            twice += a[0] * b[1] - b[0] * a[1];
+        }
+        return Math.abs(twice) / 2;
+    }
+
+    /** Convex hull (monotone chain), counter-clockwise. */
+    private static double[][] hull(List<double[]> points) {
+        var sorted = new ArrayList<>(points);
+        sorted.sort((a, b) -> a[0] != b[0] ? Double.compare(a[0], b[0]) : Double.compare(a[1], b[1]));
+        int n = sorted.size();
+        if (n < 3) return sorted.toArray(double[][]::new);
+        double[][] chain = new double[2 * n][];
+        int k = 0;
+        for (int i = 0; i < n; i++) {
+            while (k >= 2 && cross(chain[k - 2], chain[k - 1], sorted.get(i)) <= 0) k--;
+            chain[k++] = sorted.get(i);
+        }
+        for (int i = n - 2, lower = k + 1; i >= 0; i--) {
+            while (k >= lower && cross(chain[k - 2], chain[k - 1], sorted.get(i)) <= 0) k--;
+            chain[k++] = sorted.get(i);
+        }
+        return java.util.Arrays.copyOf(chain, Math.max(1, k - 1));
+    }
+
+    private static double cross(double[] o, double[] a, double[] b) {
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    }
+
+    private static Path2D.Double path(double[][] points) {
+        Path2D.Double path = new Path2D.Double();
+        for (int k = 0; k < points.length; k++) {
+            if (k == 0) path.moveTo(points[k][0], points[k][1]);
+            else path.lineTo(points[k][0], points[k][1]);
+        }
+        path.closePath();
+        return path;
     }
 
     /** Whether {@code region} covers almost all of {@code bbox}. */
