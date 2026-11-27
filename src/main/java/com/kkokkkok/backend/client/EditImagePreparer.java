@@ -71,9 +71,14 @@ class EditImagePreparer {
                 // The exact area when the analysis gave one (text polygon, object mask); else the box.
                 var cueShapes = EditCueShapes.of(cue, bbox);
                 if (!cueShapes.isEmpty()) {
+                    var lines = new ArrayList<EditCueShapes.Shape>();
                     for (var shape : cueShapes) {
-                        shape.fill(graphics, width, height);
-                        if (shape.text()) addPart(textParts, cue, shape.path(width, height), photo);
+                        if (shape.text()) lines.add(shape);
+                        else shape.fill(graphics, width, height);
+                    }
+                    for (Path2D area : EditCueShapes.joinNearLines(lines, width, height)) {
+                        graphics.fill(area);
+                        addPart(textParts, cue, area, photo);
                     }
                     visualCues.add(cue);
                     continue;
@@ -141,7 +146,8 @@ class EditImagePreparer {
      */
     List<FocusRequest> focusRequests(PreparedEditImage prepared, BufferedImage result) {
         var readable = prepared.textParts().stream()
-                .filter(part -> EditComposite.edgeRatio(prepared.source(), result, part) > EditComposite.UNERASED_EDGE_RATIO)
+                .filter(part -> EditComposite.remainingWriting(prepared.source(), result, part, prepared.distance(),
+                        prepared.grow(), prepared.feather()) > EditComposite.UNERASED_WRITING)
                 .toList();
         if (readable.isEmpty()) return List.of();
         int gap = (int) (Math.min(prepared.width(), prepared.height()) * 0.06);
@@ -161,14 +167,13 @@ class EditImagePreparer {
     record FocusRequest(List<TextPart> parts, List<Map<String, Object>> cues, byte[] imagePng, byte[] maskPng) {}
 
     /**
-     * {@code base} with the focused edit blended in around its lines only. A dark patch instead of the surface
-     * keeps {@code base} as it was.
+     * {@code base} with the focused edit blended in around its lines only. A dark patch or black hole instead of the
+     * surface keeps {@code base} as it was.
      */
     BufferedImage blendFocus(BufferedImage base, FocusRequest focus, byte[] generated) {
         BufferedImage decoded = decodeGenerated(generated);
         Layout layout = layout(draw(focus.parts(), base.getWidth(), base.getHeight()), true);
-        if (EditComposite.darkPatchShare(base, decoded, layout.distance(), layout.grow(), layout.feather(),
-                layout.frame()) > EditComposite.DARK_PATCH_LIMIT) return base;
+        if (defect(base, decoded, layout.distance(), layout.grow(), layout.feather(), layout.frame()) > 1) return base;
         return EditComposite.blend(base, decoded, layout.distance(), layout.grow(), layout.feather(), layout.frame());
     }
 
@@ -250,10 +255,20 @@ class EditImagePreparer {
 
     record EditedImage(byte[] bytes, String contentType) {}
 
-    /** How much of the edited area the editor painted as an unexplained dark patch (0 = none). */
-    double darkPatchShare(PreparedEditImage prepared, byte[] generated) {
-        return EditComposite.darkPatchShare(prepared.source(), decodeGenerated(generated), prepared.distance(), prepared.grow(),
-                prepared.feather(), prepared.frame());
+    /**
+     * How badly the editor painted a dark patch or a black hole instead of the surface, relative to the limits:
+     * above 1 the edit is not usable as it is (0 = none).
+     */
+    double defect(PreparedEditImage prepared, byte[] generated) {
+        BufferedImage decoded = decodeGenerated(generated);
+        return defect(prepared.source(), decoded, prepared.distance(), prepared.grow(), prepared.feather(), prepared.frame());
+    }
+
+    private static double defect(BufferedImage source, BufferedImage decoded, short[] distance, int grow, int feather,
+                                 Rectangle frame) {
+        double dark = EditComposite.darkPatchShare(source, decoded, distance, grow, feather, frame) / EditComposite.DARK_PATCH_LIMIT;
+        double hole = EditComposite.blackHoleShare(source, decoded, distance, grow, frame) / EditComposite.BLACK_HOLE_LIMIT;
+        return Math.max(dark, hole);
     }
 
     byte[] sanitizeGeneratedImage(byte[] bytes) {

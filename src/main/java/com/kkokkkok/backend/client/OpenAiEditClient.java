@@ -68,11 +68,12 @@ class OpenAiEditClient implements EditClient {
             throw new ApiFailure(503, "EDITING_NOT_CONFIGURED", "보호 편집 API 키가 설정되지 않았습니다.");
         String prompt = promptBuilder.build(submission, prepared.visualCues());
         byte[] responseImage = requestEdit(prepared.imagePng(), prepared.maskPng(), prompt);
-        double darkPatch = imagePreparer.darkPatchShare(prepared, responseImage);
-        if (darkPatch > EditComposite.DARK_PATCH_LIMIT) {
-            // Occasionally the editor paints a dark hole instead of the surface; one more try usually fixes it.
+        double defect = imagePreparer.defect(prepared, responseImage);
+        if (defect > 1) {
+            // Occasionally the editor paints a dark patch or tears a black hole instead of the surface; one more try
+            // usually fixes it.
             byte[] retried = requestEdit(prepared.imagePng(), prepared.maskPng(), prompt);
-            if (imagePreparer.darkPatchShare(prepared, retried) < darkPatch) responseImage = retried;
+            if (imagePreparer.defect(prepared, retried) < defect) responseImage = retried;
         }
         BufferedImage result = eraseReadableLines(submission, prepared, imagePreparer.blend(prepared, responseImage));
         var composed = imagePreparer.encodeResult(result);

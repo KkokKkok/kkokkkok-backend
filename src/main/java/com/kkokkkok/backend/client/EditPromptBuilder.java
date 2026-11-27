@@ -66,9 +66,27 @@ class EditPromptBuilder {
         return "object".equals(cue.get("type"));
     }
 
-    /** Clues about a building's look or the surrounding structure (analysis {@code ruleClass} "structure"). */
+    /**
+     * Clues about a building's look or the surrounding structure (analysis {@code ruleClass} "structure"), and an
+     * object clue whose box takes a large part of the photo: such a box is a building or the scene (a location guess
+     * drawn on the building it is based on), and removing it whole would take the building out of the photo.
+     */
     static boolean isStructure(Map<String, Object> cue) {
-        return "structure".equals(cue.get("ruleClass")) || "building".equals(cue.get("type"));
+        return "structure".equals(cue.get("ruleClass")) || "building".equals(cue.get("type"))
+                || (isObject(cue) && boxShare(cue) > MAX_REMOVABLE_SHARE);
+    }
+
+    /** Above this share of the photo an object clue is not removed whole. */
+    static final double MAX_REMOVABLE_SHARE = 0.2;
+
+    private static double boxShare(Map<String, Object> cue) {
+        if (!(cue.get("bbox") instanceof List<?> box) || box.size() != 4) return 0;
+        double[] v = new double[4];
+        for (int i = 0; i < 4; i++) {
+            if (!(box.get(i) instanceof Number number)) return 0;
+            v[i] = number.doubleValue();
+        }
+        return Math.max(0, v[2] - v[0]) * Math.max(0, v[3] - v[1]);
     }
 
     private String describeCue(Map<String, Object> cue) {

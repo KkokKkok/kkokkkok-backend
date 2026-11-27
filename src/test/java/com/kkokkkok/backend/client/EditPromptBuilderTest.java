@@ -70,6 +70,21 @@ class EditPromptBuilderTest {
     }
 
     @Test
+    void objectClueSpanningABuildingIsNotRemovedWhole() {
+        // A location guess drawn on the building it is based on: 0.85 x 0.49 of the photo.
+        String prompt = builder.build(submission(null, 50), List.of(Map.of("id", "clue-9", "type", "object",
+                "ruleClass", "other", "title", "location guess from the building", "bbox", List.of(0.0, 0.0, 0.85, 0.49))));
+
+        assertFalse(prompt.contains("Objects to remove completely"));
+        assertFalse(prompt.contains("Remove each of these objects entirely"));
+        assertTrue(prompt.contains("rebuild the scene"));
+        // A small object (a sign on its post) is still removed whole.
+        String small = builder.build(submission(null, 50), List.of(Map.of("id", "clue-2", "type", "object",
+                "title", "station sign on a post", "bbox", List.of(0.4, 0.3, 0.6, 0.8))));
+        assertTrue(small.contains("Objects to remove completely"));
+    }
+
+    @Test
     void objectOnlySelectionHasNoWritingSection() {
         String prompt = builder.build(submission(null, 50), List.of(
                 Map.of("id", "clue-2", "type", "object", "ruleClass", "identifier", "title", "station sign on a post")));

@@ -179,16 +179,50 @@ class EditImagePreparerTest {
         assertSame(source,preparer.blendFocus(source,focus.get(0),encode(hole,"png")));
     }
 
-    @Test void edgeRatioSeparatesErasedFromUntouchedWriting() {
-        BufferedImage text=new BufferedImage(60,20,BufferedImage.TYPE_INT_RGB);
-        for(int y=0;y<20;y++) for(int x=0;x<60;x++) text.setRGB(x,y,(x/3)%2==0 ? Color.BLACK.getRGB() : Color.WHITE.getRGB());
-        BufferedImage plain=new BufferedImage(60,20,BufferedImage.TYPE_INT_RGB);
-        for(int y=0;y<20;y++) for(int x=0;x<60;x++) plain.setRGB(x,y,Color.WHITE.getRGB());
-        var part=new PreparedEditImage.TextPart(Map.of(),new java.awt.geom.Path2D.Double(new java.awt.Rectangle(5,5,50,10)),
-                new java.awt.Rectangle(5,5,50,10));
-        assertEquals(1.0,EditComposite.edgeRatio(text,text,part),1e-9);
-        assertEquals(0.0,EditComposite.edgeRatio(text,plain,part),1e-9);
-        assertEquals(0.0,EditComposite.edgeRatio(plain,text,part),1e-9);   // nothing to erase in the original
+    @Test void remainingWritingSeparatesErasedFromUntouchedWritingAndIgnoresTextureAround() {
+        int w=800, h=400;
+        var rect=new java.awt.Rectangle(200,160,400,40);
+        var part=new PreparedEditImage.TextPart(Map.of(),new java.awt.geom.Path2D.Double(rect),rect);
+        boolean[] region=new boolean[w*h];
+        for(int y=rect.y;y<rect.y+rect.height;y++) for(int x=rect.x;x<rect.x+rect.width;x++) region[y*w+x]=true;
+        short[] distance=EditComposite.distances(region,w,h,40);
+        // Plain board: stripes of writing inside the line only.
+        BufferedImage text=new BufferedImage(w,h,BufferedImage.TYPE_INT_RGB), plain=new BufferedImage(w,h,BufferedImage.TYPE_INT_RGB);
+        for(int y=0;y<h;y++) for(int x=0;x<w;x++) {
+            plain.setRGB(x,y,Color.WHITE.getRGB());
+            text.setRGB(x,y,rect.contains(x,y) && (x/3)%2==0 ? Color.BLACK.getRGB() : Color.WHITE.getRGB());
+        }
+        assertEquals(1.0,EditComposite.remainingWriting(text,text,part,distance,3,2),1e-9);
+        assertEquals(0.0,EditComposite.remainingWriting(text,plain,part,distance,3,2),1e-9);
+        assertEquals(0.0,EditComposite.remainingWriting(plain,text,part,distance,3,2),1e-9);   // nothing to erase
+        // Leaves (a coarse texture everywhere) over the writing: erasing the writing leaves only the leaves.
+        BufferedImage leafy=new BufferedImage(w,h,BufferedImage.TYPE_INT_RGB), leafyText=new BufferedImage(w,h,BufferedImage.TYPE_INT_RGB);
+        for(int y=0;y<h;y++) for(int x=0;x<w;x++) {
+            boolean leaf=((x/10)+(y/10))%2==0;
+            leafy.setRGB(x,y,leaf ? new Color(30,90,30).getRGB() : Color.WHITE.getRGB());
+            leafyText.setRGB(x,y,rect.contains(x,y) && (x/3)%2==0 ? Color.BLACK.getRGB() : leafy.getRGB(x,y));
+        }
+        assertTrue(EditComposite.remainingWriting(leafyText,leafy,part,distance,3,2)<0.1);
+        assertTrue(EditComposite.remainingWriting(leafyText,leafyText,part,distance,3,2)>0.9);
+    }
+
+    @Test void nearLinesOfOneCueAreEditedAsOneAreaButFarOnesStaySeparate() throws Exception {
+        // 200x200 photo, lines 10px tall: a slogan at y 40-50 and a year at y 80-90 with a stylized name between them
+        // (gap 30px = 3 line heights), and a third line far below at y 170-180.
+        Map<String,Object> cue = Map.of("id","synthetic","type","text","coordinateSpace","analysis-normalized",
+                "bbox",List.of(.2,.2,.8,.25),
+                "regions",List.of(line(.2,.2,.8,.25),line(.3,.4,.7,.45),line(.3,.85,.7,.9)));
+        BufferedImage mask = mask(200,200,List.of(cue));
+        assertTrue(cleared(mask,100,65));    // the name between the near lines
+        assertTrue(cleared(mask,100,175));   // the far line itself
+        assertFalse(cleared(mask,100,130));  // not the space between the near group and the far line
+        var prepared = prepare(encode(new BufferedImage(200,200,BufferedImage.TYPE_INT_RGB),"png"),"image/png",List.of(cue));
+        assertEquals(2,prepared.textParts().size());
+    }
+
+    private Map<String,Object> line(double l,double t,double r,double b) {
+        return Map.of("kind","text","verified",true,"bbox",List.of(l,t,r,b),
+                "polygon",List.of(List.of(l,t),List.of(r,t),List.of(r,b),List.of(l,b)));
     }
 
     @Test void modelMaskGrowsBeyondTheClueShapeOnRealSizedPhotos() throws Exception {
@@ -217,11 +251,30 @@ class EditImagePreparerTest {
                 hole.setRGB(x,y,clue ? new Color(8,8,8).getRGB() : source.getRGB(x,y));
                 clean.setRGB(x,y,source.getRGB(x,y));
             }
-            double holeShare=preparer.darkPatchShare(prepared,encode(hole,"png"));
-            assertEquals(0,preparer.darkPatchShare(prepared,encode(clean,"png")),1e-9);
-            if(wall>100) assertTrue(holeShare>EditComposite.DARK_PATCH_LIMIT,"hole share "+holeShare);
-            else assertEquals(0,holeShare,1e-9);
+            double holeDefect=preparer.defect(prepared,encode(hole,"png"));
+            assertEquals(0,preparer.defect(prepared,encode(clean,"png")),1e-9);
+            if(wall>100) assertTrue(holeDefect>1,"hole defect "+holeDefect);
+            else assertEquals(0,holeDefect,1e-9);
         }
+    }
+
+    @Test void blackHoleOverABrightAreaIsDetectedEvenWhenTheSurroundingsAreDarkInPlaces() throws Exception {
+        // A building (bright, top half) over a dark arcade (bottom half): the edit area touches both, so the dark-patch
+        // check stands down, but pure black painted over the bright facade is still a hole.
+        int size=400;
+        var preparer=new EditImagePreparer();
+        BufferedImage source=new BufferedImage(size,size,BufferedImage.TYPE_INT_RGB);
+        for(int y=0;y<size;y++) for(int x=0;x<size;x++) source.setRGB(x,y,(y<200 ? new Color(200,200,195) : new Color(25,25,25)).getRGB());
+        var prepared=preparer.prepare(new EditSubmission(UUID.randomUUID(),encode(source,"png"),"image/png",
+                List.of(cue(0,0,.8,.6)),"",50));
+        BufferedImage repainted=new BufferedImage(size,size,BufferedImage.TYPE_INT_RGB), torn=new BufferedImage(size,size,BufferedImage.TYPE_INT_RGB);
+        for(int y=0;y<size;y++) for(int x=0;x<size;x++) {
+            int trees=new Color(70,110,60).getRGB();
+            repainted.setRGB(x,y,x<320 && y<240 ? trees : source.getRGB(x,y));
+            torn.setRGB(x,y,x<60 && y<60 ? Color.BLACK.getRGB() : repainted.getRGB(x,y));   // corner hole, 2.25% of the photo
+        }
+        assertTrue(preparer.defect(prepared,encode(repainted,"png"))<=1);
+        assertTrue(preparer.defect(prepared,encode(torn,"png"))>1);
     }
 
     @Test void composeKeepsEveryPixelOutsideTheEditAreaAndUsesTheEditInside() throws Exception {
