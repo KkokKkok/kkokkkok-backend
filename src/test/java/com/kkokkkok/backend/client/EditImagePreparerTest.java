@@ -220,6 +220,20 @@ class EditImagePreparerTest {
         assertEquals(2,prepared.textParts().size());
     }
 
+    @Test void tallLettersGetARimForTheirShadowsThatGrowsWithTheLine() throws Exception {
+        // 400x400 photo: a 60px tall sign line (y 100-160) and a 10px line (y 300-310). The fixed margin is 3px + 2px fade;
+        // the tall line also gets 12px (20% of its height), the short one only 2px.
+        Map<String,Object> tall = Map.of("id","a","type","text","coordinateSpace","analysis-normalized","bbox",List.of(.25,.25,.75,.4),
+                "regions",List.of(line(.25,.25,.75,.4)));
+        Map<String,Object> small = Map.of("id","b","type","text","coordinateSpace","analysis-normalized","bbox",List.of(.25,.75,.75,.775),
+                "regions",List.of(line(.25,.75,.75,.775)));
+        BufferedImage mask = mask(400,400,List.of(tall,small));
+        assertTrue(cleared(mask,200,172));    // 12px below the tall line: its shadow
+        assertFalse(cleared(mask,200,185));
+        assertTrue(cleared(mask,200,315));
+        assertFalse(cleared(mask,200,322));   // the short line's rim stays small
+    }
+
     private Map<String,Object> line(double l,double t,double r,double b) {
         return Map.of("kind","text","verified",true,"bbox",List.of(l,t,r,b),
                 "polygon",List.of(List.of(l,t),List.of(r,t),List.of(r,b),List.of(l,b)));
